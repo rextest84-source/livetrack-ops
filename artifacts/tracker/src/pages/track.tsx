@@ -10,11 +10,12 @@ import {
   getPackageHistoryQueryKey,
 } from "@workspace/api-client-react";
 import { TrackingMap } from "@/components/TrackingMap";
+import { MapModal } from "@/components/MapModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Eye, ArrowLeft, Package as PackageIcon, MapPin, Activity, CheckCircle2 } from "lucide-react";
+import { Eye, ArrowLeft, Package as PackageIcon, MapPin, Activity, Map } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { TrackingEvent } from "@workspace/api-zod/src/generated/types"; // Fallback type if needed or just use any
+import { TrackingEvent } from "@workspace/api-zod/src/generated/types";
 
 export default function Track() {
   const { trackingId } = useParams<{ trackingId: string }>();
@@ -38,6 +39,7 @@ export default function Track() {
   const [liveViewers, setLiveViewers] = useState(viewersData?.viewers || 0);
   const [liveHistory, setLiveHistory] = useState<any[]>(historyData || []);
   const [pulseViewers, setPulseViewers] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
 
   // Sync initial data
   useEffect(() => { if (pkgData) setLivePkg(prev => ({ ...pkgData, ...prev })); }, [pkgData]);
@@ -154,10 +156,18 @@ export default function Track() {
             <div className="p-2 bg-primary/10 rounded-md border border-primary/20">
               <PackageIcon className="w-5 h-5 text-primary" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <h2 className="text-lg font-bold uppercase tracking-tight">Cargo Details</h2>
               <p className="text-xs text-muted-foreground uppercase">{livePkg.carrier}</p>
             </div>
+            <button
+              onClick={() => setShowMapModal(true)}
+              className="flex items-center gap-2 bg-primary/10 hover:bg-primary/20 border border-primary/40 hover:border-primary text-primary px-3 py-2 rounded-md text-xs font-bold uppercase tracking-wider transition-all duration-200 shrink-0 group"
+            >
+              <Map className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+              <span>Live Map</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -204,8 +214,21 @@ export default function Track() {
             ))}
           </div>
         </div>
-        
+
       </div>
+
+      {/* Full-screen Live Map Modal */}
+      {showMapModal && livePkg && (
+        <MapModal
+          trackingId={livePkg.trackingId}
+          currentLat={livePkg.currentLat}
+          currentLng={livePkg.currentLng}
+          locationName={livePkg.currentLocationName || "In Transit"}
+          progressPct={livePkg.progressPct}
+          route={routeData}
+          onClose={() => setShowMapModal(false)}
+        />
+      )}
     </div>
   );
 }
