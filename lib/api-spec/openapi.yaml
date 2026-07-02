@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: LiveTrack real-time package tracking API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: packages
+    description: Package tracking operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,118 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /packages:
+    get:
+      operationId: listPackages
+      tags: [packages]
+      summary: List all tracked packages
+      responses:
+        "200":
+          description: List of packages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Package"
+
+  /packages/{trackingId}:
+    get:
+      operationId: getPackage
+      tags: [packages]
+      summary: Get package details and current location
+      parameters:
+        - name: trackingId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Package details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Package"
+        "404":
+          description: Package not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /packages/{trackingId}/route:
+    get:
+      operationId: getPackageRoute
+      tags: [packages]
+      summary: Get full route waypoints for a package
+      parameters:
+        - name: trackingId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Route data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageRoute"
+        "404":
+          description: Package not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /packages/{trackingId}/viewers:
+    get:
+      operationId: getPackageViewers
+      tags: [packages]
+      summary: Get current viewer count for a package tracking page
+      parameters:
+        - name: trackingId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Viewer count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViewerCount"
+
+  /packages/{trackingId}/history:
+    get:
+      operationId: getPackageHistory
+      tags: [packages]
+      summary: Get timeline of tracking events for a package
+      parameters:
+        - name: trackingId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of tracking events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrackingEvent"
+        "404":
+          description: Package not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +148,103 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    Coordinates:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat:
+          type: number
+        lng:
+          type: number
+
+    RouteStop:
+      type: object
+      required: [name, lat, lng, done]
+      properties:
+        name:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        done:
+          type: boolean
+        active:
+          type: boolean
+        timestamp:
+          type: ["string", "null"]
+
+    Package:
+      type: object
+      required: [trackingId, status, origin, destination, carrier, estimatedDelivery, currentLat, currentLng, progressPct]
+      properties:
+        trackingId:
+          type: string
+        status:
+          type: string
+        origin:
+          type: string
+        destination:
+          type: string
+        carrier:
+          type: string
+        estimatedDelivery:
+          type: string
+        currentLat:
+          type: number
+        currentLng:
+          type: number
+        progressPct:
+          type: number
+        currentLocationName:
+          type: string
+        weightLbs:
+          type: number
+        signatureRequired:
+          type: boolean
+
+    PackageRoute:
+      type: object
+      required: [trackingId, waypoints, stops]
+      properties:
+        trackingId:
+          type: string
+        waypoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/Coordinates"
+        stops:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteStop"
+
+    TrackingEvent:
+      type: object
+      required: [id, trackingId, message, location, timestamp]
+      properties:
+        id:
+          type: integer
+        trackingId:
+          type: string
+        message:
+          type: string
+        location:
+          type: string
+        timestamp:
+          type: string
+
+    ViewerCount:
+      type: object
+      required: [trackingId, viewers]
+      properties:
+        trackingId:
+          type: string
+        viewers:
+          type: integer
