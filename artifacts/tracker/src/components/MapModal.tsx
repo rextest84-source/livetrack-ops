@@ -282,116 +282,137 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background font-mono">
+    /*
+     * Root: fixed full-screen, creates its own stacking context via z-[50].
+     * The map div and the UI overlay div are siblings.
+     * UI overlay uses zIndex 1000 in inline style — well above Leaflet's
+     * internal ceiling (~700 for popups) so it never gets buried during
+     * zoom/pan repaints. Tailwind z-classes (z-20 = 20) were being overridden
+     * by Leaflet's pane z-indexes during CSS-transform repaints.
+     */
+    <div className="fixed inset-0 font-mono" style={{ zIndex: 50 }}>
 
-      {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3 bg-background/80 backdrop-blur-md border-b border-primary/20">
-        <div className="flex items-center gap-3">
-          <div className="text-primary font-bold text-sm tracking-widest uppercase">Live Map</div>
-          <div className="text-muted-foreground text-xs">—</div>
-          <div className="text-foreground text-xs font-bold uppercase">{trackingId}</div>
-          <div className="hidden sm:flex items-center gap-1 bg-primary/10 border border-primary/30 text-primary text-xs px-2 py-0.5 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse inline-block" />
-            LIVE
+      {/* Map fills everything — Leaflet mounts here */}
+      <div ref={mapDivRef} className="absolute inset-0" />
+
+      {/* UI overlay — isolated above all Leaflet layers, pointer-events off by default */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: 1000 }}
+      >
+        {/* ── Top bar ── */}
+        <div className="absolute top-0 left-0 right-0 pointer-events-auto flex items-center justify-between px-4 py-3 bg-background/90 backdrop-blur-md border-b border-primary/20">
+          <div className="flex items-center gap-3">
+            <span className="text-primary font-bold text-sm tracking-widest uppercase">Live Map</span>
+            <span className="text-muted-foreground text-xs">—</span>
+            <span className="text-foreground text-xs font-bold uppercase">{trackingId}</span>
+            <span className="hidden sm:flex items-center gap-1 bg-primary/10 border border-primary/30 text-primary text-xs px-2 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse inline-block" />
+              LIVE
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Layer switcher */}
+            <div className="flex items-center gap-0 bg-card/90 border border-primary/20 rounded-md overflow-hidden">
+              <Layers className="w-3.5 h-3.5 text-muted-foreground mx-2 shrink-0" />
+              {(Object.keys(TILE_LAYERS) as (keyof typeof TILE_LAYERS)[]).map((key) => (
+                <button
+                  key={key}
+                  onClick={() => setActiveLayer(key)}
+                  className={`px-3 py-1.5 text-xs font-bold uppercase transition-colors ${
+                    activeLayer === key
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-primary/10"
+                  }`}
+                >
+                  {TILE_LAYERS[key].label}
+                </button>
+              ))}
+            </div>
+
+            {/* Center on package */}
+            <button
+              onClick={centerOnPackage}
+              className="flex items-center gap-1.5 bg-card/90 border border-primary/20 hover:border-primary/60 text-foreground px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-colors"
+            >
+              <Crosshair className="w-3.5 h-3.5 text-primary" />
+              <span className="hidden sm:inline">Center</span>
+            </button>
+
+            {/* Close */}
+            <button
+              onClick={onClose}
+              className="flex items-center gap-1.5 bg-card/90 border border-primary/20 hover:border-red-500/60 text-foreground px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Close</span>
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Layer switcher */}
-          <div className="flex items-center gap-1 bg-card/80 border border-primary/20 rounded-md overflow-hidden">
-            <Layers className="w-3.5 h-3.5 text-muted-foreground ml-2" />
-            {(Object.keys(TILE_LAYERS) as (keyof typeof TILE_LAYERS)[]).map((key) => (
-              <button
-                key={key}
-                onClick={() => setActiveLayer(key)}
-                className={`px-3 py-1.5 text-xs font-bold uppercase transition-colors ${activeLayer === key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                {TILE_LAYERS[key].label}
-              </button>
-            ))}
+        {/* ── Bottom HUD ── */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-stretch gap-2">
+          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-4 shadow-xl">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-xs uppercase">Lat</span>
+              <span className="text-primary text-xs font-bold tabular-nums">{coords.lat.toFixed(5)}</span>
+            </div>
+            <div className="w-px h-4 bg-primary/20" />
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-xs uppercase">Lng</span>
+              <span className="text-primary text-xs font-bold tabular-nums">{coords.lng.toFixed(5)}</span>
+            </div>
           </div>
 
-          {/* Center button */}
-          <button
-            onClick={centerOnPackage}
-            title="Center on package"
-            className="flex items-center gap-1.5 bg-card/80 border border-primary/20 hover:border-primary/60 text-foreground px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-colors"
-          >
-            <Crosshair className="w-3.5 h-3.5 text-primary" />
-            <span className="hidden sm:inline">Center</span>
-          </button>
-
-          {/* Close */}
-          <button
-            onClick={onClose}
-            className="flex items-center gap-1.5 bg-card/80 border border-primary/20 hover:border-destructive/60 text-foreground px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-colors"
-          >
-            <X className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Close</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Map */}
-      <div ref={mapDivRef} className="w-full flex-1" style={{ paddingTop: "52px" }} />
-
-      {/* Bottom HUD */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 flex items-stretch gap-2 pointer-events-none">
-
-        {/* Package position */}
-        <div className="bg-background/85 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-4 shadow-xl">
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-xs uppercase">Lat</span>
-            <span className="text-primary text-xs font-bold tabular-nums">{coords.lat.toFixed(5)}</span>
+          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-4 shadow-xl">
+            <div className="flex items-center gap-2">
+              <Navigation
+                className="w-3.5 h-3.5 text-primary transition-transform duration-500"
+                style={bearing !== null ? { transform: `rotate(${bearing}deg)` } : {}}
+              />
+              <span className="text-foreground text-xs font-bold">{compassDir(bearing)}</span>
+            </div>
+            <div className="w-px h-4 bg-primary/20" />
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-xs uppercase">Speed</span>
+              <span className="text-primary text-xs font-bold tabular-nums">
+                {speed !== null ? `${speed} km/h` : "—"}
+              </span>
+            </div>
           </div>
-          <div className="w-px h-4 bg-primary/20" />
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-xs uppercase">Lng</span>
-            <span className="text-primary text-xs font-bold tabular-nums">{coords.lng.toFixed(5)}</span>
+
+          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-3 shadow-xl">
+            <span className="text-muted-foreground text-xs uppercase">Progress</span>
+            <div className="w-20 h-1.5 bg-secondary rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-1000"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <span className="text-primary text-xs font-bold tabular-nums">{Math.round(progressPct)}%</span>
           </div>
         </div>
 
-        {/* Speed + heading */}
-        <div className="bg-background/85 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-4 shadow-xl">
-          <div className="flex items-center gap-2">
-            <Navigation className="w-3.5 h-3.5 text-primary" style={bearing !== null ? { transform: `rotate(${bearing}deg)` } : {}} />
-            <span className="text-foreground text-xs font-bold">{compassDir(bearing)}</span>
-          </div>
-          <div className="w-px h-4 bg-primary/20" />
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-xs uppercase">Speed</span>
-            <span className="text-primary text-xs font-bold tabular-nums">{speed !== null ? `${speed} km/h` : "—"}</span>
-          </div>
-        </div>
-
-        {/* Progress */}
-        <div className="bg-background/85 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-3 shadow-xl">
-          <span className="text-muted-foreground text-xs uppercase">Progress</span>
-          <div className="w-20 h-1.5 bg-secondary rounded-full overflow-hidden">
-            <div className="h-full bg-primary transition-all duration-1000" style={{ width: `${progressPct}%` }} />
-          </div>
-          <span className="text-primary text-xs font-bold tabular-nums">{Math.round(progressPct)}%</span>
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div className="absolute bottom-8 right-4 z-20 bg-background/80 backdrop-blur-md border border-primary/20 rounded-lg px-3 py-2 pointer-events-none">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-0.5 bg-[#38bdf8] rounded" />
-            <span className="text-xs text-muted-foreground">Completed</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-0.5 bg-[#334155] rounded border-t border-dashed border-[#475569]" style={{ borderStyle: "dashed" }} />
-            <span className="text-xs text-muted-foreground">Upcoming</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-[#22c55e]" />
-            <span className="text-xs text-muted-foreground">Origin</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-[#f59e0b]" />
-            <span className="text-xs text-muted-foreground">Destination</span>
+        {/* ── Legend ── */}
+        <div className="absolute bottom-8 right-4 bg-background/90 backdrop-blur-md border border-primary/20 rounded-lg px-3 py-2">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="w-5 h-0.5 bg-[#38bdf8] rounded" />
+              <span className="text-xs text-muted-foreground">Completed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-5 border-t border-dashed border-[#475569]" />
+              <span className="text-xs text-muted-foreground">Upcoming</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#22c55e]" />
+              <span className="text-xs text-muted-foreground">Origin</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-[#f59e0b]" />
+              <span className="text-xs text-muted-foreground">Destination</span>
+            </div>
           </div>
         </div>
       </div>
