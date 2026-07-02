@@ -9,7 +9,7 @@ interface Stop {
   lng: number;
   done: boolean;
   active?: boolean;
-  timestamp?: string;
+  timestamp?: string | null;
 }
 
 interface MapModalProps {
@@ -49,18 +49,60 @@ const TILE_LAYERS = {
 const LIVE_MARKER_HTML = `
   <div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
     <div style="position:absolute;width:56px;height:56px;border-radius:50%;background:rgba(56,189,248,0.2);animation:pulse-ring 2s ease-out infinite;"></div>
-    <div style="position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(56,189,248,0.15);animation:pulse-ring 2s ease-out infinite 0.6s;"></div>
+    <div style="position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(56,189,248,0.12);animation:pulse-ring 2s ease-out infinite 0.6s;"></div>
     <div style="font-size:30px;line-height:1;filter:drop-shadow(0 2px 12px rgba(56,189,248,0.8));animation:bounce-marker 2.5s ease-in-out infinite;">📬</div>
   </div>
 `;
 
-const ORIGIN_HTML = `<div style="width:16px;height:16px;border-radius:50%;background:#22c55e;border:3px solid #fff;box-shadow:0 0 10px rgba(34,197,94,0.7);"></div>`;
-const DEST_HTML = `<div style="width:16px;height:16px;border-radius:50%;background:#f59e0b;border:3px solid #fff;box-shadow:0 0 10px rgba(245,158,11,0.7);"></div>`;
-const STOP_DONE_HTML = `<div style="width:10px;height:10px;border-radius:50%;background:#38bdf8;border:2px solid rgba(255,255,255,0.5);"></div>`;
-const STOP_PENDING_HTML = `<div style="width:10px;height:10px;border-radius:50%;background:#475569;border:2px solid #64748b;"></div>`;
+function originIcon() {
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:18px;height:18px;border-radius:50%;background:#22c55e;border:3px solid #fff;box-shadow:0 0 12px rgba(34,197,94,0.8);"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
 
-function makeDivIcon(html: string, size: [number, number], anchor: [number, number]) {
-  return L.divIcon({ className: "", html, iconSize: size, iconAnchor: anchor });
+function destIcon() {
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:18px;height:18px;border-radius:50%;background:#f59e0b;border:3px solid #fff;box-shadow:0 0 12px rgba(245,158,11,0.8);"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
+function stopDoneIcon() {
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:13px;height:13px;border-radius:50%;background:#38bdf8;border:2px solid rgba(255,255,255,0.7);box-shadow:0 0 6px rgba(56,189,248,0.5);"></div>`,
+    iconSize: [13, 13],
+    iconAnchor: [6, 6],
+  });
+}
+
+function stopPendingIcon() {
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:13px;height:13px;border-radius:50%;background:#475569;border:2px solid #64748b;"></div>`,
+    iconSize: [13, 13],
+    iconAnchor: [6, 6],
+  });
+}
+
+function liveIcon() {
+  return L.divIcon({
+    className: "",
+    html: LIVE_MARKER_HTML,
+    iconSize: [56, 56],
+    iconAnchor: [28, 28],
+  });
+}
+
+function formatTimestamp(ts: string | null | undefined): string {
+  if (!ts) return "";
+  // ts is like "Jun 30, 9:00 AM" — already human readable, just return it
+  return ts;
 }
 
 export function MapModal({ trackingId, currentLat, currentLng, locationName, progressPct, route, onClose }: MapModalProps) {
@@ -69,8 +111,8 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
   const markerRef = useRef<L.Marker | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
   const rafRef = useRef<number | null>(null);
+  const routeLayersRef = useRef<L.Layer[]>([]);
   const currentPosRef = useRef({ lat: currentLat, lng: currentLng });
-  const prevPosRef = useRef({ lat: currentLat, lng: currentLng });
   const lastMoveTimeRef = useRef<number>(Date.now());
 
   const [activeLayer, setActiveLayer] = useState<keyof typeof TILE_LAYERS>("dark");
@@ -79,26 +121,20 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
   const [bearing, setBearing] = useState<number | null>(null);
   const [showLegend, setShowLegend] = useState(false);
 
-  // Init map
+  // ── 1. Init map (once) — only creates the map instance and live marker ──
   useEffect(() => {
     if (!mapDivRef.current || mapRef.current) return;
 
     const map = L.map(mapDivRef.current, {
       center: [currentLat, currentLng],
-      zoom: 7,
+      zoom: 5,
       zoomControl: false,
     });
 
-    // Custom zoom control bottom-right
     L.control.zoom({ position: "bottomright" }).addTo(map);
-
-    // Scale bar
     L.control.scale({ position: "bottomleft", imperial: true, metric: true }).addTo(map);
-
-    // Attribution
     map.attributionControl.setPosition("bottomleft");
 
-    // Tile layer
     const layer = TILE_LAYERS.dark;
     const tile = L.tileLayer(layer.url, {
       attribution: layer.attribution,
@@ -107,66 +143,16 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
     }).addTo(map);
     tileRef.current = tile;
 
-    // Live package marker
     const liveMarker = L.marker([currentLat, currentLng], {
-      icon: makeDivIcon(LIVE_MARKER_HTML, [56, 56], [28, 28]),
+      icon: liveIcon(),
       zIndexOffset: 1000,
     }).addTo(map);
-    liveMarker.bindPopup(`
-      <div style="font-family:monospace;min-width:160px;">
-        <div style="font-weight:bold;color:#38bdf8;font-size:13px;">${trackingId}</div>
-        <div style="color:#94a3b8;font-size:11px;margin-top:4px;">${locationName}</div>
-        <div style="color:#22c55e;font-size:11px;margin-top:2px;">Progress: ${Math.round(progressPct)}%</div>
-      </div>
-    `);
 
+    liveMarker.bindPopup(buildPackagePopup(trackingId, locationName, progressPct));
     markerRef.current = liveMarker;
     mapRef.current = map;
     currentPosRef.current = { lat: currentLat, lng: currentLng };
-    prevPosRef.current = { lat: currentLat, lng: currentLng };
 
-    // Draw route
-    if (route && route.waypoints.length >= 2) {
-      const waypoints = route.waypoints.map((w) => [w.lat, w.lng] as [number, number]);
-      L.polyline(waypoints, { color: "#334155", weight: 3, opacity: 0.7, dashArray: "8,8" }).addTo(map);
-
-      const activeIdx = route.stops.findIndex((s) => s.active || !s.done);
-      if (activeIdx > 0) {
-        const ratio = activeIdx / (route.stops.length - 1);
-        const splitIdx = Math.ceil(ratio * waypoints.length);
-        const completed = waypoints.slice(0, Math.max(splitIdx, 2));
-        if (completed.length >= 2) {
-          L.polyline(completed, { color: "#38bdf8", weight: 4, opacity: 0.95 }).addTo(map);
-        }
-      }
-
-      route.stops.forEach((stop, i) => {
-        const isFirst = i === 0;
-        const isLast = i === route.stops.length - 1;
-        const html = isFirst ? ORIGIN_HTML : isLast ? DEST_HTML : stop.done ? STOP_DONE_HTML : STOP_PENDING_HTML;
-        const size: [number, number] = isFirst || isLast ? [16, 16] : [10, 10];
-        const m = L.marker([stop.lat, stop.lng], {
-          icon: makeDivIcon(html, size, [size[0] / 2, size[1] / 2]),
-        }).addTo(map);
-
-        const badge = isFirst ? "🟢 Origin" : isLast ? "🟡 Destination" : stop.done ? "✅ Completed" : "⏳ Upcoming";
-        m.bindPopup(`
-          <div style="font-family:monospace;min-width:140px;">
-            <div style="font-size:11px;color:#94a3b8;">${badge}</div>
-            <div style="font-weight:bold;font-size:13px;margin-top:2px;">${stop.name}</div>
-            ${stop.timestamp ? `<div style="font-size:10px;color:#64748b;margin-top:2px;">${new Date(stop.timestamp).toLocaleString()}</div>` : ""}
-          </div>
-        `);
-      });
-
-      // Fit to route bounds
-      const allPts = route.stops.map((s) => L.latLng(s.lat, s.lng));
-      if (allPts.length >= 2) {
-        map.fitBounds(L.latLngBounds(allPts), { padding: [60, 60] });
-      }
-    }
-
-    // Mouse coordinate tracker
     map.on("mousemove", (e) => {
       setCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
     });
@@ -176,11 +162,80 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
+      tileRef.current = null;
+      routeLayersRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Animate marker to new position + compute speed/bearing
+  // ── 2. Draw route reactively — runs whenever route data arrives or changes ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !route || route.waypoints.length < 2) return;
+
+    // Clear any previously drawn route layers
+    routeLayersRef.current.forEach((l) => map.removeLayer(l));
+    routeLayersRef.current = [];
+
+    const waypoints = route.waypoints.map((w) => [w.lat, w.lng] as [number, number]);
+
+    // Full route — dashed muted
+    const fullRoute = L.polyline(waypoints, {
+      color: "#334155",
+      weight: 3,
+      opacity: 0.75,
+      dashArray: "8,8",
+    }).addTo(map);
+    routeLayersRef.current.push(fullRoute);
+
+    // Completed portion — solid cyan, up to first active/undone stop
+    const activeIdx = route.stops.findIndex((s) => s.active || !s.done);
+    const splitAt = activeIdx > 0 ? activeIdx : route.stops.length - 1;
+    const ratio = splitAt / (route.stops.length - 1);
+    const splitWpIdx = Math.max(Math.ceil(ratio * (waypoints.length - 1)), 2);
+    if (splitAt > 0) {
+      const completedWps = waypoints.slice(0, splitWpIdx + 1);
+      const completedRoute = L.polyline(completedWps, {
+        color: "#38bdf8",
+        weight: 5,
+        opacity: 0.95,
+      }).addTo(map);
+      routeLayersRef.current.push(completedRoute);
+    }
+
+    // Stop markers
+    route.stops.forEach((stop, i) => {
+      const isFirst = i === 0;
+      const isLast = i === route.stops.length - 1;
+
+      let icon: L.DivIcon;
+      let badge: string;
+      if (isFirst) { icon = originIcon(); badge = "🟢 Origin"; }
+      else if (isLast) { icon = destIcon(); badge = "🟡 Destination"; }
+      else if (stop.done) { icon = stopDoneIcon(); badge = "🔵 Completed Stop"; }
+      else { icon = stopPendingIcon(); badge = "⚫ Upcoming Stop"; }
+
+      const m = L.marker([stop.lat, stop.lng], { icon, zIndexOffset: 200 }).addTo(map);
+      routeLayersRef.current.push(m);
+
+      const ts = formatTimestamp(stop.timestamp);
+      m.bindPopup(`
+        <div style="font-family:monospace;min-width:150px;padding:2px 0;">
+          <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">${badge}</div>
+          <div style="font-weight:bold;font-size:13px;">${stop.name}</div>
+          ${ts ? `<div style="font-size:10px;color:#64748b;margin-top:3px;">📅 ${ts}</div>` : '<div style="font-size:10px;color:#475569;margin-top:3px;">Not yet reached</div>'}
+        </div>
+      `);
+    });
+
+    // Fit map to show entire route with padding for top bar
+    const allPts = route.stops.map((s) => L.latLng(s.lat, s.lng));
+    if (allPts.length >= 2) {
+      map.fitBounds(L.latLngBounds(allPts), { paddingTopLeft: [20, 64], paddingBottomRight: [20, 80] });
+    }
+  }, [route]);
+
+  // ── 3. Animate live marker on position updates ──
   useEffect(() => {
     const marker = markerRef.current;
     if (!marker) return;
@@ -193,21 +248,20 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
     if (fromLat === toLat && fromLng === toLng) return;
 
     // Compute bearing
-    const dLng = ((toLng - fromLng) * Math.PI) / 180;
-    const lat1 = (fromLat * Math.PI) / 180;
-    const lat2 = (toLat * Math.PI) / 180;
-    const y = Math.sin(dLng) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-    const deg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-    setBearing(Math.round(deg));
+    const dLngRad = ((toLng - fromLng) * Math.PI) / 180;
+    const lat1Rad = (fromLat * Math.PI) / 180;
+    const lat2Rad = (toLat * Math.PI) / 180;
+    const y = Math.sin(dLngRad) * Math.cos(lat2Rad);
+    const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLngRad);
+    setBearing(Math.round(((Math.atan2(y, x) * 180) / Math.PI + 360) % 360));
 
-    // Compute speed (km/h) using Haversine
+    // Compute speed (km/h)
     const R = 6371;
-    const dLat = ((toLat - fromLat) * Math.PI) / 180;
-    const dLon = ((toLng - fromLng) * Math.PI) / 180;
+    const dLatRad = ((toLat - fromLat) * Math.PI) / 180;
+    const dLonRad = ((toLng - fromLng) * Math.PI) / 180;
     const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos((fromLat * Math.PI) / 180) * Math.cos((toLat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+      Math.sin(dLatRad / 2) ** 2 +
+      Math.cos((fromLat * Math.PI) / 180) * Math.cos((toLat * Math.PI) / 180) * Math.sin(dLonRad / 2) ** 2;
     const distKm = 2 * R * Math.asin(Math.sqrt(a));
     const elapsedHrs = (Date.now() - lastMoveTimeRef.current) / 3_600_000;
     if (elapsedHrs > 0) setSpeed(Math.round(distKm / elapsedHrs));
@@ -216,13 +270,13 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     const startTime = performance.now();
     const duration = 1200;
-    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+    const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 
     const animate = (now: number) => {
       const t = Math.min((now - startTime) / duration, 1);
-      const ease = easeOutCubic(t);
-      const lat = fromLat + (toLat - fromLat) * ease;
-      const lng = fromLng + (toLng - fromLng) * ease;
+      const e = ease(t);
+      const lat = fromLat + (toLat - fromLat) * e;
+      const lng = fromLng + (toLng - fromLng) * e;
       marker.setLatLng([lat, lng]);
       setCoords({ lat, lng });
 
@@ -230,84 +284,64 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
         rafRef.current = requestAnimationFrame(animate);
       } else {
         currentPosRef.current = { lat: toLat, lng: toLng };
-        // Auto-pan if out of view
         const map = mapRef.current;
         if (map && !map.getBounds().contains([toLat, toLng])) {
           map.panTo([toLat, toLng], { animate: true, duration: 1.2 });
         }
-        // Update popup content
-        marker.setPopupContent(`
-          <div style="font-family:monospace;min-width:160px;">
-            <div style="font-weight:bold;color:#38bdf8;font-size:13px;">${trackingId}</div>
-            <div style="color:#94a3b8;font-size:11px;margin-top:4px;">${locationName}</div>
-            <div style="color:#22c55e;font-size:11px;margin-top:2px;">Progress: ${Math.round(progressPct)}%</div>
-          </div>
-        `);
+        marker.setPopupContent(buildPackagePopup(trackingId, locationName, progressPct));
       }
     };
     rafRef.current = requestAnimationFrame(animate);
   }, [currentLat, currentLng, locationName, progressPct, trackingId]);
 
-  // Switch tile layers
+  // ── 4. Switch tile layers ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !tileRef.current) return;
     map.removeLayer(tileRef.current);
-    const layer = TILE_LAYERS[activeLayer];
-    const tile = L.tileLayer(layer.url, {
-      attribution: layer.attribution,
+    const cfg = TILE_LAYERS[activeLayer];
+    const tile = L.tileLayer(cfg.url, {
+      attribution: cfg.attribution,
       maxZoom: 19,
-      subdomains: layer.subdomains || "abc",
+      subdomains: cfg.subdomains || "abc",
     }).addTo(map);
     tile.setZIndex(0);
     tileRef.current = tile;
     markerRef.current?.setZIndexOffset(1000);
   }, [activeLayer]);
 
-  // Center on package
+  // ── Close on Escape ──
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", fn);
+    return () => window.removeEventListener("keydown", fn);
+  }, [onClose]);
+
   const centerOnPackage = () => {
     mapRef.current?.flyTo([currentPosRef.current.lat, currentPosRef.current.lng], 10, { duration: 1.5 });
   };
 
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
   const compassDir = (deg: number | null) => {
-    if (deg === null) return "—";
-    const dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-    return dirs[Math.round(deg / 45) % 8];
+    if (deg === null) return null;
+    return ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(deg / 45) % 8];
   };
 
   return (
-    /*
-     * Root: fixed full-screen, creates its own stacking context via z-[50].
-     * The map div and the UI overlay div are siblings.
-     * UI overlay uses zIndex 1000 in inline style — well above Leaflet's
-     * internal ceiling (~700 for popups) so it never gets buried during
-     * zoom/pan repaints. Tailwind z-classes (z-20 = 20) were being overridden
-     * by Leaflet's pane z-indexes during CSS-transform repaints.
-     */
     <div className="fixed inset-0 font-mono" style={{ zIndex: 50 }}>
 
-      {/* Map fills everything — Leaflet mounts here */}
+      {/* Map fills everything */}
       <div ref={mapDivRef} className="absolute inset-0" />
 
-      {/* UI overlay — isolated above all Leaflet layers, pointer-events off by default */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ zIndex: 1000 }}
-      >
+      {/* UI overlay — zIndex 1000 keeps all controls above Leaflet's internal panes */}
+      <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1000 }}>
+
         {/* ── Top bar ── */}
         <div className="absolute top-0 left-0 right-0 pointer-events-auto flex items-center justify-between px-4 py-3 bg-background/90 backdrop-blur-md border-b border-primary/20">
           <div className="flex items-center gap-3">
             <span className="text-primary font-bold text-sm tracking-widest uppercase">Live Map</span>
             <span className="text-muted-foreground text-xs">—</span>
             <span className="text-foreground text-xs font-bold uppercase">{trackingId}</span>
-            <span className="hidden sm:flex items-center gap-1 bg-primary/10 border border-primary/30 text-primary text-xs px-2 py-0.5 rounded-full">
+            <span className="hidden sm:flex items-center gap-1.5 bg-primary/10 border border-primary/30 text-primary text-xs px-2 py-0.5 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse inline-block" />
               LIVE
             </span>
@@ -315,7 +349,7 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
 
           <div className="flex items-center gap-2">
             {/* Layer switcher */}
-            <div className="flex items-center gap-0 bg-card/90 border border-primary/20 rounded-md overflow-hidden">
+            <div className="flex items-center bg-card/90 border border-primary/20 rounded-md overflow-hidden">
               <Layers className="w-3.5 h-3.5 text-muted-foreground mx-2 shrink-0" />
               {(Object.keys(TILE_LAYERS) as (keyof typeof TILE_LAYERS)[]).map((key) => (
                 <button
@@ -367,169 +401,146 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
 
         {/* ── Bottom HUD ── */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-stretch gap-2">
+          {/* Coordinates */}
           <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-4 shadow-xl">
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground text-xs uppercase">Lat</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground text-[10px] uppercase">Lat</span>
               <span className="text-primary text-xs font-bold tabular-nums">{coords.lat.toFixed(5)}</span>
             </div>
             <div className="w-px h-4 bg-primary/20" />
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground text-xs uppercase">Lng</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground text-[10px] uppercase">Lng</span>
               <span className="text-primary text-xs font-bold tabular-nums">{coords.lng.toFixed(5)}</span>
             </div>
           </div>
 
+          {/* Heading + Speed */}
           <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-4 shadow-xl">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Navigation
-                className="w-3.5 h-3.5 text-primary transition-transform duration-500"
+                className="w-3.5 h-3.5 text-primary transition-transform duration-700"
                 style={bearing !== null ? { transform: `rotate(${bearing}deg)` } : {}}
               />
-              <span className="text-foreground text-xs font-bold">{compassDir(bearing)}</span>
+              <span className="text-foreground text-xs font-bold w-6">
+                {compassDir(bearing) ?? "—"}
+              </span>
             </div>
             <div className="w-px h-4 bg-primary/20" />
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground text-xs uppercase">Speed</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground text-[10px] uppercase">Speed</span>
               <span className="text-primary text-xs font-bold tabular-nums">
                 {speed !== null ? `${speed} km/h` : "—"}
               </span>
             </div>
           </div>
 
+          {/* Progress */}
           <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-3 shadow-xl">
-            <span className="text-muted-foreground text-xs uppercase">Progress</span>
+            <span className="text-muted-foreground text-[10px] uppercase">Progress</span>
             <div className="w-20 h-1.5 bg-secondary rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-1000"
-                style={{ width: `${progressPct}%` }}
-              />
+              <div className="h-full bg-primary transition-all duration-1000" style={{ width: `${progressPct}%` }} />
             </div>
             <span className="text-primary text-xs font-bold tabular-nums">{Math.round(progressPct)}%</span>
           </div>
         </div>
 
-        {/* ── Legend Panel ── toggled by the Legend button in the top bar */}
+        {/* ── Legend Panel ── */}
         {showLegend && (
-          <div className="absolute top-[56px] right-4 w-72 bg-background/95 backdrop-blur-md border border-primary/30 rounded-xl shadow-2xl overflow-hidden">
-            {/* Header */}
+          <div className="absolute top-[56px] right-4 w-72 bg-background/95 backdrop-blur-md border border-primary/30 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
             <div className="flex items-center justify-between px-4 py-3 border-b border-primary/20 bg-primary/5">
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-primary" />
-                <span className="text-sm font-bold uppercase tracking-widest text-foreground">Map Legend</span>
+                <span className="text-sm font-bold uppercase tracking-widest">Map Legend</span>
               </div>
-              <button onClick={() => setShowLegend(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+              <button onClick={() => setShowLegend(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            <div className="px-4 py-3 space-y-5 text-xs">
+            <div className="px-4 py-3 space-y-5 text-xs overflow-y-auto max-h-[calc(100vh-120px)]">
 
-              {/* Live Package */}
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">Live Package</div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg leading-none">📬</span>
-                    <div>
-                      <div className="font-bold text-foreground">Animated Marker</div>
-                      <div className="text-muted-foreground">Current package position, updates every 1.5 s via live stream</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-5 h-5 rounded-full bg-[#38bdf8]/20 border-2 border-[#38bdf8]/60 flex items-center justify-center shrink-0">
-                      <div className="w-2 h-2 rounded-full bg-[#38bdf8] animate-pulse" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-foreground">Pulse Ring</div>
-                      <div className="text-muted-foreground">Active signal — package is transmitting location</div>
-                    </div>
-                  </div>
+              <section>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2 pb-1 border-b border-primary/10">Live Package</div>
+                <div className="space-y-2.5">
+                  <LegendRow
+                    icon={<span className="text-xl leading-none">📬</span>}
+                    label="Animated Marker"
+                    desc="Current position — moves every 1.5 s via live stream"
+                  />
+                  <LegendRow
+                    icon={
+                      <div className="w-5 h-5 rounded-full bg-[#38bdf8]/20 border-2 border-[#38bdf8]/60 flex items-center justify-center shrink-0">
+                        <div className="w-2 h-2 rounded-full bg-[#38bdf8] animate-pulse" />
+                      </div>
+                    }
+                    label="Pulse Ring"
+                    desc="Active signal — package is transmitting GPS location"
+                  />
                 </div>
-              </div>
+              </section>
 
-              {/* Route Lines */}
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">Route</div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-0.5 bg-[#38bdf8] rounded shrink-0" />
-                    <div>
-                      <div className="font-bold text-foreground">Completed Segment</div>
-                      <div className="text-muted-foreground">Path already travelled by the package</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 shrink-0" style={{ borderTop: "2px dashed #475569" }} />
-                    <div>
-                      <div className="font-bold text-foreground">Upcoming Segment</div>
-                      <div className="text-muted-foreground">Remaining route to destination</div>
-                    </div>
-                  </div>
+              <section>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2 pb-1 border-b border-primary/10">Route Lines</div>
+                <div className="space-y-2.5">
+                  <LegendRow
+                    icon={<div className="w-10 h-[3px] bg-[#38bdf8] rounded shrink-0" />}
+                    label="Completed Segment"
+                    desc="Path already travelled by this package"
+                  />
+                  <LegendRow
+                    icon={<div className="w-10 shrink-0" style={{ borderTop: "2px dashed #475569" }} />}
+                    label="Upcoming Segment"
+                    desc="Remaining route to destination"
+                  />
                 </div>
-              </div>
+              </section>
 
-              {/* Stop Markers */}
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">Stop Markers</div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-5 h-5 rounded-full bg-[#22c55e] border-2 border-white shrink-0 shadow-[0_0_6px_rgba(34,197,94,0.6)]" />
-                    <div>
-                      <div className="font-bold text-foreground">Origin</div>
-                      <div className="text-muted-foreground">Pickup / dispatch point</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-5 h-5 rounded-full bg-[#f59e0b] border-2 border-white shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
-                    <div>
-                      <div className="font-bold text-foreground">Destination</div>
-                      <div className="text-muted-foreground">Final delivery address</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-3.5 h-3.5 rounded-full bg-[#38bdf8] border-2 border-white/40 shrink-0 ml-[3px]" />
-                    <div>
-                      <div className="font-bold text-foreground">Completed Stop</div>
-                      <div className="text-muted-foreground">Checkpoint already scanned and passed</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-3.5 h-3.5 rounded-full bg-[#475569] border-2 border-[#64748b] shrink-0 ml-[3px]" />
-                    <div>
-                      <div className="font-bold text-foreground">Upcoming Stop</div>
-                      <div className="text-muted-foreground">Checkpoint not yet reached</div>
-                    </div>
-                  </div>
+              <section>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2 pb-1 border-b border-primary/10">Stop Markers</div>
+                <div className="space-y-2.5">
+                  <LegendRow
+                    icon={<div className="w-[18px] h-[18px] rounded-full bg-[#22c55e] border-2 border-white shadow-[0_0_8px_rgba(34,197,94,0.7)] shrink-0" />}
+                    label="Origin"
+                    desc="Pickup / dispatch point — click for details"
+                  />
+                  <LegendRow
+                    icon={<div className="w-[18px] h-[18px] rounded-full bg-[#f59e0b] border-2 border-white shadow-[0_0_8px_rgba(245,158,11,0.7)] shrink-0" />}
+                    label="Destination"
+                    desc="Final delivery address — click for details"
+                  />
+                  <LegendRow
+                    icon={<div className="w-[13px] h-[13px] rounded-full bg-[#38bdf8] border-2 border-white/60 shadow-[0_0_4px_rgba(56,189,248,0.5)] shrink-0 ml-[2px]" />}
+                    label="Completed Stop"
+                    desc="Checkpoint already scanned and passed"
+                  />
+                  <LegendRow
+                    icon={<div className="w-[13px] h-[13px] rounded-full bg-[#475569] border-2 border-[#64748b] shrink-0 ml-[2px]" />}
+                    label="Upcoming Stop"
+                    desc="Checkpoint not yet reached"
+                  />
                 </div>
-              </div>
+              </section>
 
-              {/* HUD */}
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">Status Bar</div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <Navigation className="w-4 h-4 text-primary shrink-0" />
-                    <div>
-                      <div className="font-bold text-foreground">Heading Arrow</div>
-                      <div className="text-muted-foreground">Rotates to show travel direction (N / NE / E…)</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Crosshair className="w-4 h-4 text-primary shrink-0" />
-                    <div>
-                      <div className="font-bold text-foreground">Center Button</div>
-                      <div className="text-muted-foreground">Flies the map back to the live marker</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Layers className="w-4 h-4 text-primary shrink-0" />
-                    <div>
-                      <div className="font-bold text-foreground">Layer Switcher</div>
-                      <div className="text-muted-foreground">Dark ops / Street map / Satellite imagery</div>
-                    </div>
-                  </div>
+              <section>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2 pb-1 border-b border-primary/10">Controls</div>
+                <div className="space-y-2.5">
+                  <LegendRow
+                    icon={<Navigation className="w-4 h-4 text-primary shrink-0" />}
+                    label="Heading Arrow"
+                    desc="Rotates to show travel direction (N / NE / E…)"
+                  />
+                  <LegendRow
+                    icon={<Crosshair className="w-4 h-4 text-primary shrink-0" />}
+                    label="Center Button"
+                    desc="Flies the map back to the live marker"
+                  />
+                  <LegendRow
+                    icon={<Layers className="w-4 h-4 text-primary shrink-0" />}
+                    label="Layer Switcher"
+                    desc="Dark ops / Street map / Satellite imagery"
+                  />
                 </div>
-              </div>
+              </section>
 
             </div>
           </div>
@@ -537,4 +548,29 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
       </div>
     </div>
   );
+}
+
+function LegendRow({ icon, label, desc }: { icon: React.ReactNode; label: string; desc: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="flex items-center justify-center w-6 h-6 shrink-0 mt-0.5">{icon}</div>
+      <div>
+        <div className="font-bold text-foreground">{label}</div>
+        <div className="text-muted-foreground leading-relaxed">{desc}</div>
+      </div>
+    </div>
+  );
+}
+
+function buildPackagePopup(trackingId: string, locationName: string, progressPct: number): string {
+  return `
+    <div style="font-family:monospace;min-width:160px;padding:2px 0;">
+      <div style="font-weight:bold;color:#38bdf8;font-size:13px;">${trackingId}</div>
+      <div style="color:#94a3b8;font-size:11px;margin-top:4px;">${locationName}</div>
+      <div style="margin-top:6px;background:#1e293b;border-radius:4px;overflow:hidden;height:4px;">
+        <div style="height:100%;width:${Math.round(progressPct)}%;background:#38bdf8;transition:width 1s;"></div>
+      </div>
+      <div style="color:#22c55e;font-size:10px;margin-top:3px;">${Math.round(progressPct)}% complete</div>
+    </div>
+  `;
 }
