@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { X, Crosshair, Layers, Navigation } from "lucide-react";
+import { X, Crosshair, Layers, Navigation, BookOpen } from "lucide-react";
 
 interface Stop {
   name: string;
@@ -77,6 +77,7 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
   const [coords, setCoords] = useState({ lat: currentLat, lng: currentLng });
   const [speed, setSpeed] = useState<number | null>(null);
   const [bearing, setBearing] = useState<number | null>(null);
+  const [showLegend, setShowLegend] = useState(false);
 
   // Init map
   useEffect(() => {
@@ -340,6 +341,19 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
               <span className="hidden sm:inline">Center</span>
             </button>
 
+            {/* Legend toggle */}
+            <button
+              onClick={() => setShowLegend((v) => !v)}
+              className={`flex items-center gap-1.5 border px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-colors ${
+                showLegend
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card/90 border-primary/20 hover:border-primary/60 text-foreground"
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Legend</span>
+            </button>
+
             {/* Close */}
             <button
               onClick={onClose}
@@ -394,27 +408,132 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
           </div>
         </div>
 
-        {/* ── Legend ── */}
-        <div className="absolute bottom-8 right-4 bg-background/90 backdrop-blur-md border border-primary/20 rounded-lg px-3 py-2">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <div className="w-5 h-0.5 bg-[#38bdf8] rounded" />
-              <span className="text-xs text-muted-foreground">Completed</span>
+        {/* ── Legend Panel ── toggled by the Legend button in the top bar */}
+        {showLegend && (
+          <div className="absolute top-[56px] right-4 w-72 bg-background/95 backdrop-blur-md border border-primary/30 rounded-xl shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-primary/20 bg-primary/5">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-primary" />
+                <span className="text-sm font-bold uppercase tracking-widest text-foreground">Map Legend</span>
+              </div>
+              <button onClick={() => setShowLegend(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-5 border-t border-dashed border-[#475569]" />
-              <span className="text-xs text-muted-foreground">Upcoming</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-[#22c55e]" />
-              <span className="text-xs text-muted-foreground">Origin</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-[#f59e0b]" />
-              <span className="text-xs text-muted-foreground">Destination</span>
+
+            <div className="px-4 py-3 space-y-5 text-xs">
+
+              {/* Live Package */}
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">Live Package</div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg leading-none">📬</span>
+                    <div>
+                      <div className="font-bold text-foreground">Animated Marker</div>
+                      <div className="text-muted-foreground">Current package position, updates every 1.5 s via live stream</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#38bdf8]/20 border-2 border-[#38bdf8]/60 flex items-center justify-center shrink-0">
+                      <div className="w-2 h-2 rounded-full bg-[#38bdf8] animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-foreground">Pulse Ring</div>
+                      <div className="text-muted-foreground">Active signal — package is transmitting location</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Route Lines */}
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">Route</div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-0.5 bg-[#38bdf8] rounded shrink-0" />
+                    <div>
+                      <div className="font-bold text-foreground">Completed Segment</div>
+                      <div className="text-muted-foreground">Path already travelled by the package</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 shrink-0" style={{ borderTop: "2px dashed #475569" }} />
+                    <div>
+                      <div className="font-bold text-foreground">Upcoming Segment</div>
+                      <div className="text-muted-foreground">Remaining route to destination</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stop Markers */}
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">Stop Markers</div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#22c55e] border-2 border-white shrink-0 shadow-[0_0_6px_rgba(34,197,94,0.6)]" />
+                    <div>
+                      <div className="font-bold text-foreground">Origin</div>
+                      <div className="text-muted-foreground">Pickup / dispatch point</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-5 h-5 rounded-full bg-[#f59e0b] border-2 border-white shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
+                    <div>
+                      <div className="font-bold text-foreground">Destination</div>
+                      <div className="text-muted-foreground">Final delivery address</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-3.5 h-3.5 rounded-full bg-[#38bdf8] border-2 border-white/40 shrink-0 ml-[3px]" />
+                    <div>
+                      <div className="font-bold text-foreground">Completed Stop</div>
+                      <div className="text-muted-foreground">Checkpoint already scanned and passed</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-3.5 h-3.5 rounded-full bg-[#475569] border-2 border-[#64748b] shrink-0 ml-[3px]" />
+                    <div>
+                      <div className="font-bold text-foreground">Upcoming Stop</div>
+                      <div className="text-muted-foreground">Checkpoint not yet reached</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* HUD */}
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2">Status Bar</div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <Navigation className="w-4 h-4 text-primary shrink-0" />
+                    <div>
+                      <div className="font-bold text-foreground">Heading Arrow</div>
+                      <div className="text-muted-foreground">Rotates to show travel direction (N / NE / E…)</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Crosshair className="w-4 h-4 text-primary shrink-0" />
+                    <div>
+                      <div className="font-bold text-foreground">Center Button</div>
+                      <div className="text-muted-foreground">Flies the map back to the live marker</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Layers className="w-4 h-4 text-primary shrink-0" />
+                    <div>
+                      <div className="font-bold text-foreground">Layer Switcher</div>
+                      <div className="text-muted-foreground">Dark ops / Street map / Satellite imagery</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
