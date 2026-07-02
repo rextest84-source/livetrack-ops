@@ -4,7 +4,7 @@ import { useListPackages } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Search, Package as PackageIcon, Activity, MapPin, Clock } from "lucide-react";
+import { Search, Package as PackageIcon, Activity, MapPin, Clock, Eye, Layers, Crosshair, Navigation, Radio } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Home() {
