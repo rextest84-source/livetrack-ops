@@ -336,26 +336,26 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1000 }}>
 
         {/* ── Top bar ── */}
-        <div className="absolute top-0 left-0 right-0 pointer-events-auto flex items-center justify-between px-4 py-3 bg-background/90 backdrop-blur-md border-b border-primary/20">
-          <div className="flex items-center gap-3">
-            <span className="text-primary font-bold text-sm tracking-widest uppercase">Live Map</span>
-            <span className="text-muted-foreground text-xs">—</span>
-            <span className="text-foreground text-xs font-bold uppercase">{trackingId}</span>
-            <span className="hidden sm:flex items-center gap-1.5 bg-primary/10 border border-primary/30 text-primary text-xs px-2 py-0.5 rounded-full">
+        <div className="absolute top-0 left-0 right-0 pointer-events-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-2.5 sm:px-4 py-2 sm:py-3 bg-background/90 backdrop-blur-md border-b border-primary/20">
+          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+            <span className="text-primary font-bold text-xs sm:text-sm tracking-widest uppercase shrink-0">Live Map</span>
+            <span className="text-muted-foreground text-[10px] sm:text-xs hidden xs:inline">—</span>
+            <span className="text-foreground text-[10px] sm:text-xs font-bold uppercase truncate">{trackingId}</span>
+            <span className="hidden sm:flex items-center gap-1.5 bg-primary/10 border border-primary/30 text-primary text-xs px-2 py-0.5 rounded-full shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse inline-block" />
               LIVE
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Layer switcher */}
             <div className="flex items-center bg-card/90 border border-primary/20 rounded-md overflow-hidden">
-              <Layers className="w-3.5 h-3.5 text-muted-foreground mx-2 shrink-0" />
+              <Layers className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-muted-foreground mx-1.5 sm:mx-2 shrink-0" />
               {(Object.keys(TILE_LAYERS) as (keyof typeof TILE_LAYERS)[]).map((key) => (
                 <button
                   key={key}
                   onClick={() => setActiveLayer(key)}
-                  className={`px-3 py-1.5 text-xs font-bold uppercase transition-colors ${
+                  className={`px-1.5 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold uppercase transition-colors ${
                     activeLayer === key
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-primary/10"
@@ -369,95 +369,95 @@ export function MapModal({ trackingId, currentLat, currentLng, locationName, pro
             {/* Center on package */}
             <button
               onClick={centerOnPackage}
-              className="flex items-center gap-1.5 bg-card/90 border border-primary/20 hover:border-primary/60 text-foreground px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-colors"
+              className="flex items-center gap-1.5 bg-card/90 border border-primary/20 hover:border-primary/60 text-foreground px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold uppercase transition-colors"
             >
-              <Crosshair className="w-3.5 h-3.5 text-primary" />
+              <Crosshair className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-primary" />
               <span className="hidden sm:inline">Center</span>
             </button>
 
             {/* Legend toggle */}
             <button
               onClick={() => setShowLegend((v) => !v)}
-              className={`flex items-center gap-1.5 border px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-colors ${
+              className={`flex items-center gap-1.5 border px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold uppercase transition-colors ${
                 showLegend
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-card/90 border-primary/20 hover:border-primary/60 text-foreground"
               }`}
             >
-              <BookOpen className="w-3.5 h-3.5" />
+              <BookOpen className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               <span className="hidden sm:inline">Legend</span>
             </button>
 
             {/* Close */}
             <button
               onClick={onClose}
-              className="flex items-center gap-1.5 bg-card/90 border border-primary/20 hover:border-red-500/60 text-foreground px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-colors"
+              className="flex items-center gap-1.5 bg-card/90 border border-primary/20 hover:border-red-500/60 text-foreground px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold uppercase transition-colors"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               <span className="hidden sm:inline">Close</span>
             </button>
           </div>
         </div>
 
         {/* ── Bottom HUD ── */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-stretch gap-2">
+        <div className="absolute bottom-2 sm:bottom-8 left-1/2 -translate-x-1/2 flex flex-wrap justify-center items-stretch gap-1.5 sm:gap-2 px-2 max-w-full">
           {/* Coordinates */}
-          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-4 shadow-xl">
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground text-[10px] uppercase">Lat</span>
-              <span className="text-primary text-xs font-bold tabular-nums">{coords.lat.toFixed(5)}</span>
+          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-2.5 sm:px-4 py-1.5 sm:py-2 flex items-center gap-2 sm:gap-4 shadow-xl">
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <span className="text-muted-foreground text-[8px] sm:text-[10px] uppercase">Lat</span>
+              <span className="text-primary text-[10px] sm:text-xs font-bold tabular-nums">{coords.lat.toFixed(5)}</span>
             </div>
             <div className="w-px h-4 bg-primary/20" />
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground text-[10px] uppercase">Lng</span>
-              <span className="text-primary text-xs font-bold tabular-nums">{coords.lng.toFixed(5)}</span>
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <span className="text-muted-foreground text-[8px] sm:text-[10px] uppercase">Lng</span>
+              <span className="text-primary text-[10px] sm:text-xs font-bold tabular-nums">{coords.lng.toFixed(5)}</span>
             </div>
           </div>
 
           {/* Heading + Speed */}
-          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-4 shadow-xl">
-            <div className="flex items-center gap-1.5">
+          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-2.5 sm:px-4 py-1.5 sm:py-2 flex items-center gap-2 sm:gap-4 shadow-xl">
+            <div className="flex items-center gap-1 sm:gap-1.5">
               <Navigation
-                className="w-3.5 h-3.5 text-primary transition-transform duration-700"
+                className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-primary transition-transform duration-700"
                 style={bearing !== null ? { transform: `rotate(${bearing}deg)` } : {}}
               />
-              <span className="text-foreground text-xs font-bold w-6">
+              <span className="text-foreground text-[10px] sm:text-xs font-bold w-5 sm:w-6">
                 {compassDir(bearing) ?? "—"}
               </span>
             </div>
             <div className="w-px h-4 bg-primary/20" />
-            <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground text-[10px] uppercase">Speed</span>
-              <span className="text-primary text-xs font-bold tabular-nums">
+            <div className="flex items-center gap-1 sm:gap-1.5">
+              <span className="text-muted-foreground text-[8px] sm:text-[10px] uppercase">Speed</span>
+              <span className="text-primary text-[10px] sm:text-xs font-bold tabular-nums">
                 {speed !== null ? `${speed} km/h` : "—"}
               </span>
             </div>
           </div>
 
           {/* Progress */}
-          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-4 py-2 flex items-center gap-3 shadow-xl">
-            <span className="text-muted-foreground text-[10px] uppercase">Progress</span>
-            <div className="w-20 h-1.5 bg-secondary rounded-full overflow-hidden">
+          <div className="bg-background/90 backdrop-blur-md border border-primary/30 rounded-lg px-2.5 sm:px-4 py-1.5 sm:py-2 flex items-center gap-2 sm:gap-3 shadow-xl">
+            <span className="text-muted-foreground text-[8px] sm:text-[10px] uppercase">Progress</span>
+            <div className="w-12 sm:w-20 h-1.5 bg-secondary rounded-full overflow-hidden">
               <div className="h-full bg-primary transition-all duration-1000" style={{ width: `${progressPct}%` }} />
             </div>
-            <span className="text-primary text-xs font-bold tabular-nums">{Math.round(progressPct)}%</span>
+            <span className="text-primary text-[10px] sm:text-xs font-bold tabular-nums">{Math.round(progressPct)}%</span>
           </div>
         </div>
 
         {/* ── Legend Panel ── */}
         {showLegend && (
-          <div className="absolute top-[56px] right-4 w-72 bg-background/95 backdrop-blur-md border border-primary/30 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-primary/20 bg-primary/5">
+          <div className="absolute top-[52px] sm:top-[56px] right-2 sm:right-4 left-2 sm:left-auto w-auto sm:w-72 bg-background/95 backdrop-blur-md border border-primary/30 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
+            <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b border-primary/20 bg-primary/5">
               <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-primary" />
-                <span className="text-sm font-bold uppercase tracking-widest">Map Legend</span>
+                <BookOpen className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />
+                <span className="text-xs sm:text-sm font-bold uppercase tracking-widest">Map Legend</span>
               </div>
               <button onClick={() => setShowLegend(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            <div className="px-4 py-3 space-y-5 text-xs overflow-y-auto max-h-[calc(100vh-120px)]">
+            <div className="px-3 sm:px-4 py-3 space-y-4 sm:space-y-5 text-[11px] sm:text-xs overflow-y-auto max-h-[calc(100dvh-160px)] sm:max-h-[calc(100vh-120px)]">
 
               <section>
                 <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2 pb-1 border-b border-primary/10">Live Package</div>
