@@ -1,5 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { GlobeMapHandle } from "@/components/globe/GlobeMap";
+import { GlobeErrorBoundary } from "@/components/globe/GlobeErrorBoundary";
+import { hasValidIonToken } from "@/components/globe/cesium-layers";
 import {
   GLOBE_TEXTURES,
   compassDirection,
@@ -60,13 +62,13 @@ export function MapModal({
   const [showLegend, setShowLegend] = useState(false);
   const [followLive, setFollowLive] = useState(true);
   const [terrainOn, setTerrainOn] = useState(true);
-  const [buildingsOn, setBuildingsOn] = useState(true);
+  const [buildingsOn, setBuildingsOn] = useState(false);
   const [sceneMode, setSceneMode] = useState<"3d" | "2d">("3d");
   const [altitudeM, setAltitudeM] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const hasIon = Boolean(import.meta.env.VITE_CESIUM_ION_TOKEN);
+  const hasIon = hasValidIonToken();
 
   useEffect(() => {
     const fromLat = currentPosRef.current.lat;
@@ -99,29 +101,31 @@ export function MapModal({
 
   return (
     <div className="fixed inset-0 font-mono" style={{ zIndex: 50 }}>
-      <Suspense
-        fallback={
-          <div className="absolute inset-0 flex items-center justify-center bg-black text-primary">
-            <Globe2 className="h-12 w-12 animate-spin" />
-          </div>
-        }
-      >
-        <GlobeMap
-          ref={globeRef}
-          className="absolute inset-0 bg-black"
-          currentLat={currentLat}
-          currentLng={currentLng}
-          route={route}
-          layer={activeLayer}
-          followPackage={followLive}
-          fitRouteOnLoad
-          terrainEnabled={terrainOn}
-          buildingsEnabled={buildingsOn}
-          onCoordsChange={setCoords}
-          onAltitudeChange={setAltitudeM}
-          onUserInteract={() => setFollowLive(false)}
-        />
-      </Suspense>
+      <GlobeErrorBoundary>
+        <Suspense
+          fallback={
+            <div className="absolute inset-0 flex items-center justify-center bg-black text-primary">
+              <Globe2 className="h-12 w-12 animate-spin" />
+            </div>
+          }
+        >
+          <GlobeMap
+            ref={globeRef}
+            className="absolute inset-0 bg-black"
+            currentLat={currentLat}
+            currentLng={currentLng}
+            route={route}
+            layer={activeLayer}
+            followPackage={followLive}
+            fitRouteOnLoad
+            terrainEnabled={terrainOn}
+            buildingsEnabled={buildingsOn}
+            onCoordsChange={setCoords}
+            onAltitudeChange={setAltitudeM}
+            onUserInteract={() => setFollowLive(false)}
+          />
+        </Suspense>
+      </GlobeErrorBoundary>
 
       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 1000 }}>
         <div className="absolute top-0 left-0 right-0 pointer-events-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-2.5 sm:px-4 py-2 sm:py-3 bg-background/90 backdrop-blur-md border-b border-primary/20">
