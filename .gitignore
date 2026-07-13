@@ -47,3 +47,6 @@ Thumbs.db
 # Local env
 .env
 .env.local
+
+# Installed at build time for Netlify functions
+netlify/functions/node_modules
