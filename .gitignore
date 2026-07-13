@@ -47,7 +47,3 @@ Thumbs.db
 # Local env
 .env
 .env.local
-
-# Generated Netlify function bundle
-netlify/functions/api.js
-netlify/functions/api.js.map
