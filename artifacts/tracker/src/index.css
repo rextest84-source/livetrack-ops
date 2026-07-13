@@ -261,19 +261,40 @@
   50%       { transform: translateY(-6px); }
 }
 
-/* Leaflet popup dark styling */
-.leaflet-popup-content-wrapper {
-  background: hsl(var(--card)) !important;
-  border: 1px solid hsl(var(--primary) / 0.3) !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
-  color: hsl(var(--foreground)) !important;
+.globe-live-marker {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
 }
-.leaflet-popup-tip {
-  background: hsl(var(--card)) !important;
+
+.globe-live-marker__ring {
+  position: absolute;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.22);
 }
-.leaflet-popup-close-button {
-  color: hsl(var(--muted-foreground)) !important;
+
+.globe-live-marker__ring--outer {
+  width: 56px;
+  height: 56px;
+  animation: pulse-ring 2s ease-out infinite;
+}
+
+.globe-live-marker__ring--inner {
+  width: 36px;
+  height: 36px;
+  animation: pulse-ring 2s ease-out infinite 0.5s;
+}
+
+.globe-live-marker__icon {
+  font-size: 30px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 12px rgba(56, 189, 248, 0.8));
+  animation: bounce-marker 2.5s ease-in-out infinite;
 }
 
 @layer utilities {
