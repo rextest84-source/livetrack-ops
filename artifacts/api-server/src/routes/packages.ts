@@ -14,9 +14,19 @@ import {
   sendSseEvent,
 } from "../lib/sse.js";
 import { getComputedLocation, getRouteData, isServerlessRuntime } from "../lib/simulation.js";
+import { ensureSeeded } from "../lib/seed.js";
 import type { Package } from "@workspace/db";
 
 const router: IRouter = Router();
+
+router.use(async (_req, _res, next) => {
+  try {
+    await ensureSeeded();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 function withLiveLocation<T extends Package>(pkg: T): T {
   const live = getComputedLocation(pkg.trackingId);

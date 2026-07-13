@@ -26,13 +26,12 @@ export const handler: Handler = async (
   (context as HandlerContext & { callbackWaitsForEmptyEventLoop?: boolean })
     .callbackWaitsForEmptyEventLoop = false;
 
-  const { ensureSeeded } = await import(
-    "../../artifacts/api-server/src/lib/seed.js"
-  );
-  await ensureSeeded();
-
   const serverlessHandler = await getHandler();
-  const path = event.path.replace(/^\/\.netlify\/functions\/api/, "/api");
+
+  let path = event.path;
+  if (path.startsWith("/.netlify/functions/api")) {
+    path = `/api${path.slice("/.netlify/functions/api".length)}`;
+  }
 
   return serverlessHandler(
     {

@@ -1,43 +1,27 @@
-import express, { type Express } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
-import pinoHttp from "pino-http";
 import router from "./routes";
-import { logger } from "./lib/logger";
-import { ensureSeeded } from "./lib/seed.js";
 
 const app: Express = express();
 
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
-      },
-      res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
-      },
-    },
-  }),
-);
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    console.log(
+      JSON.stringify({
+        level: "info",
+        method: req.method,
+        url: req.url?.split("?")[0],
+        status: res.statusCode,
+        ms: Date.now() - start,
+      }),
+    );
+  });
+  next();
+});
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-app.use(async (_req, _res, next) => {
-  try {
-    await ensureSeeded();
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
 
 app.use("/api", router);
 

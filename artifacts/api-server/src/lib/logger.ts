@@ -1,11 +1,27 @@
-import pino from "pino";
+type LogFields = Record<string, unknown>;
 
-// Plain JSON logging only — pino-pretty breaks Netlify/serverless bundles.
-export const logger = pino({
-  level: process.env.LOG_LEVEL ?? "info",
-  redact: [
-    "req.headers.authorization",
-    "req.headers.cookie",
-    "res.headers['set-cookie']",
-  ],
-});
+function write(level: string, fieldsOrMsg: LogFields | string, maybeMsg?: string): void {
+  const payload =
+    typeof fieldsOrMsg === "string"
+      ? { level, msg: fieldsOrMsg }
+      : { level, ...fieldsOrMsg, msg: maybeMsg };
+  console.log(JSON.stringify(payload));
+}
+
+export const logger = {
+  info(fieldsOrMsg: LogFields | string, maybeMsg?: string): void {
+    write("info", fieldsOrMsg, maybeMsg);
+  },
+  error(fieldsOrMsg: LogFields | string, maybeMsg?: string): void {
+    write("error", fieldsOrMsg, maybeMsg);
+  },
+  warn(fieldsOrMsg: LogFields | string, maybeMsg?: string): void {
+    write("warn", fieldsOrMsg, maybeMsg);
+  },
+  debug(fieldsOrMsg: LogFields | string, maybeMsg?: string): void {
+    write("debug", fieldsOrMsg, maybeMsg);
+  },
+  child(): typeof logger {
+    return logger;
+  },
+};
