@@ -25,7 +25,7 @@
 
 [functions]
   node_bundler = "none"
-  included_files = []
+  included_files = ["netlify/functions/package.json", "netlify/functions/node_modules/**"]
 
 [[redirects]]
   from = "/api/*"
