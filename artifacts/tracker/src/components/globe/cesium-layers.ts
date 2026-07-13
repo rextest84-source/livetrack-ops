@@ -1,7 +1,6 @@
 import {
   Credit,
   IonImageryProvider,
-  OpenStreetMapImageryProvider,
   UrlTemplateImageryProvider,
   type ImageryProvider,
 } from "cesium";
@@ -22,6 +21,14 @@ const ESRI_LABELS =
 const ESRI_STREETS =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
 
+/** Only use Cesium Ion when a real token is configured (not empty/placeholder). */
+export function hasValidIonToken(): boolean {
+  const token = (import.meta.env.VITE_CESIUM_ION_TOKEN as string | undefined)?.trim();
+  if (!token) return false;
+  if (token === "your_token_here" || token === "placeholder") return false;
+  return token.length >= 20;
+}
+
 function esriTiles(url: string, credit: string, maxLevel = 19): ImageryProvider {
   return new UrlTemplateImageryProvider({
     url,
@@ -30,50 +37,49 @@ function esriTiles(url: string, credit: string, maxLevel = 19): ImageryProvider 
   });
 }
 
-/** High-resolution satellite tiles — stay sharp when zoomed in. */
-export function createSatelliteProvider(useIon: boolean): Promise<ImageryProvider> {
-  if (useIon) {
-    return IonImageryProvider.fromAssetId(2);
+async function ionOrEsri(
+  assetId: number,
+  fallback: ImageryProvider,
+): Promise<ImageryProvider> {
+  if (!hasValidIonToken()) return fallback;
+  try {
+    return await IonImageryProvider.fromAssetId(assetId);
+  } catch {
+    return fallback;
   }
-  return Promise.resolve(esriTiles(ESRI_SATELLITE, "Esri, Maxar, Earthstar Geographics"));
 }
 
-/** Street map with roads, cities, and labels. */
-export function createStreetProvider(useIon: boolean): Promise<ImageryProvider> {
-  if (useIon) {
-    return IonImageryProvider.fromAssetId(4);
-  }
-  return Promise.resolve(esriTiles(ESRI_STREETS, "Esri, OpenStreetMap contributors"));
+export function createSatelliteProvider(): Promise<ImageryProvider> {
+  return ionOrEsri(
+    2,
+    esriTiles(ESRI_SATELLITE, "Esri, Maxar, Earthstar Geographics"),
+  );
 }
 
-/** Satellite base with transparent label overlay — Google Earth hybrid style. */
-export async function createHybridProviders(
-  useIon: boolean,
-): Promise<ImageryProvider[]> {
-  const base = await createSatelliteProvider(useIon);
+export function createStreetProvider(): Promise<ImageryProvider> {
+  return ionOrEsri(
+    4,
+    esriTiles(ESRI_STREETS, "Esri, OpenStreetMap contributors"),
+  );
+}
+
+export async function createHybridProviders(): Promise<ImageryProvider[]> {
+  const base = await createSatelliteProvider();
   const labels = esriTiles(ESRI_LABELS, "Esri, OpenStreetMap contributors");
   return [base, labels];
 }
 
 export async function createLayerProviders(
   layer: GlobeLayer,
-  useIon: boolean,
 ): Promise<ImageryProvider[]> {
   switch (layer) {
     case "satellite":
-      return [await createSatelliteProvider(useIon)];
+      return [await createSatelliteProvider()];
     case "street":
-      return [await createStreetProvider(useIon)];
+      return [await createStreetProvider()];
     case "hybrid":
-      return createHybridProviders(useIon);
+      return createHybridProviders();
     default:
-      return [await createSatelliteProvider(useIon)];
+      return [await createSatelliteProvider()];
   }
-}
-
-/** Fallback street tiles when Ion is unavailable. */
-export function createOsmProvider(): ImageryProvider {
-  return new OpenStreetMapImageryProvider({
-    url: "https://tile.openstreetmap.org/",
-  });
 }

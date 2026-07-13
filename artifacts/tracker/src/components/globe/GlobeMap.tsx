@@ -3,6 +3,7 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
 } from "react";
 import {
   ArcGISTiledElevationTerrainProvider,
@@ -29,10 +30,9 @@ import {
   Viewer,
   createOsmBuildingsAsync,
   type Entity,
-  type ImageryLayer,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import { createLayerProviders } from "./cesium-layers";
+import { createLayerProviders, hasValidIonToken } from "./cesium-layers";
 import {
   buildRoutePaths,
   buildStopPoints,
@@ -40,9 +40,8 @@ import {
   type RouteData,
 } from "./globe-config";
 
-const ionToken = import.meta.env.VITE_CESIUM_ION_TOKEN as string | undefined;
-if (ionToken) {
-  Ion.defaultAccessToken = ionToken;
+if (hasValidIonToken()) {
+  Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN as string;
 }
 
 export interface GlobeMapHandle {
@@ -85,24 +84,27 @@ function stopColor(hex: string): Color {
 }
 
 function pickGroundCoords(viewer: Viewer): { lat: number; lng: number } | null {
-  const canvas = viewer.canvas;
-  const center = new Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
-  const ray = viewer.camera.getPickRay(center);
-  if (!ray) return null;
-
-  const hit = viewer.scene.globe.pick(ray, viewer.scene);
-  if (!hit) return null;
-
-  const carto = Cartographic.fromCartesian(hit);
-  return {
-    lat: CesiumMath.toDegrees(carto.latitude),
-    lng: CesiumMath.toDegrees(carto.longitude),
-  };
+  try {
+    const canvas = viewer.canvas;
+    if (!canvas.clientWidth || !canvas.clientHeight) return null;
+    const center = new Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+    const ray = viewer.camera.getPickRay(center);
+    if (!ray) return null;
+    const hit = viewer.scene.globe.pick(ray, viewer.scene);
+    if (!hit) return null;
+    const carto = Cartographic.fromCartesian(hit);
+    return {
+      lat: CesiumMath.toDegrees(carto.latitude),
+      lng: CesiumMath.toDegrees(carto.longitude),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function flyHeightForZoom(viewer: Viewer, factor: number): number {
   const height = viewer.camera.positionCartographic.height;
-  return CesiumMath.clamp(height * factor, 120, 25_000_000);
+  return CesiumMath.clamp(height * factor, 500, 25_000_000);
 }
 
 async function applyTerrain(viewer: Viewer, enabled: boolean): Promise<void> {
@@ -112,13 +114,13 @@ async function applyTerrain(viewer: Viewer, enabled: boolean): Promise<void> {
     return;
   }
 
-  if (ionToken) {
+  if (hasValidIonToken()) {
     try {
       viewer.scene.setTerrain(Terrain.fromWorldTerrain());
       viewer.scene.globe.depthTestAgainstTerrain = true;
       return;
     } catch {
-      /* fall through to Esri terrain */
+      /* fall through */
     }
   }
 
@@ -142,7 +144,7 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
     followPackage = false,
     fitRouteOnLoad = true,
     terrainEnabled = true,
-    buildingsEnabled = true,
+    buildingsEnabled = false,
     onCoordsChange,
     onUserInteract,
     onAltitudeChange,
@@ -152,6 +154,7 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
+  const handlerRef = useRef<ScreenSpaceEventHandler | null>(null);
   const packageEntityRef = useRef<Entity | null>(null);
   const packagePositionRef = useRef({ lat: currentLat, lng: currentLng });
   const buildingsRef = useRef<Awaited<ReturnType<typeof createOsmBuildingsAsync>> | null>(
@@ -160,16 +163,22 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
   const fittedRouteRef = useRef(false);
   const followRef = useRef(followPackage);
   const userMovedRef = useRef(false);
-  const layerRef = useRef(layer);
+  const onCoordsChangeRef = useRef(onCoordsChange);
+  const onUserInteractRef = useRef(onUserInteract);
+  const onAltitudeChangeRef = useRef(onAltitudeChange);
+
+  const [viewerReady, setViewerReady] = useState(false);
 
   followRef.current = followPackage;
-  layerRef.current = layer;
   packagePositionRef.current = { lat: currentLat, lng: currentLng };
+  onCoordsChangeRef.current = onCoordsChange;
+  onUserInteractRef.current = onUserInteract;
+  onAltitudeChangeRef.current = onAltitudeChange;
 
   useImperativeHandle(ref, () => ({
     flyToPackage(lat: number, lng: number) {
       const viewer = viewerRef.current;
-      if (!viewer) return;
+      if (!viewer || viewer.isDestroyed()) return;
       userMovedRef.current = false;
       viewer.trackedEntity = undefined;
       const height = flyHeightForZoom(viewer, 0.35);
@@ -190,7 +199,7 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
     },
     fitRoute(nextRoute: RouteData) {
       const viewer = viewerRef.current;
-      if (!viewer) return;
+      if (!viewer || viewer.isDestroyed()) return;
       userMovedRef.current = false;
       viewer.trackedEntity = undefined;
       const positions = nextRoute.waypoints.map((w) =>
@@ -204,44 +213,40 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
     },
     zoomIn() {
       const viewer = viewerRef.current;
-      if (!viewer) return;
+      if (!viewer || viewer.isDestroyed()) return;
       const height = viewer.camera.positionCartographic.height;
       viewer.camera.zoomIn(height * 0.45);
     },
     zoomOut() {
       const viewer = viewerRef.current;
-      if (!viewer) return;
+      if (!viewer || viewer.isDestroyed()) return;
       const height = viewer.camera.positionCartographic.height;
       viewer.camera.zoomOut(height * 0.55);
     },
     resetNorth() {
       const viewer = viewerRef.current;
-      if (!viewer) return;
+      if (!viewer || viewer.isDestroyed()) return;
       viewer.camera.flyTo({
         destination: viewer.camera.position,
-        orientation: {
-          heading: 0,
-          pitch: viewer.camera.pitch,
-          roll: 0,
-        },
+        orientation: { heading: 0, pitch: viewer.camera.pitch, roll: 0 },
         duration: 0.8,
       });
     },
     async toggleTerrain(enabled: boolean) {
       const viewer = viewerRef.current;
-      if (!viewer) return;
+      if (!viewer || viewer.isDestroyed()) return;
       await applyTerrain(viewer, enabled);
     },
     async toggleBuildings(enabled: boolean) {
       const viewer = viewerRef.current;
-      if (!viewer || !ionToken) return;
+      if (!viewer || viewer.isDestroyed() || !hasValidIonToken()) return;
       if (enabled) {
         if (!buildingsRef.current) {
           try {
             buildingsRef.current = await createOsmBuildingsAsync();
             viewer.scene.primitives.add(buildingsRef.current);
           } catch {
-            /* buildings optional */
+            /* optional */
           }
         } else {
           buildingsRef.current.show = true;
@@ -252,23 +257,18 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
     },
     setSceneMode(mode: "3d" | "2d") {
       const viewer = viewerRef.current;
-      if (!viewer) return;
-      if (mode === "2d") {
-        viewer.scene.morphTo2D(0.8);
-      } else {
-        viewer.scene.morphTo3D(0.8);
-      }
+      if (!viewer || viewer.isDestroyed()) return;
+      if (mode === "2d") viewer.scene.morphTo2D(0.8);
+      else viewer.scene.morphTo3D(0.8);
     },
     async searchLocation(query: string) {
       const viewer = viewerRef.current;
-      if (!viewer) return false;
+      if (!viewer || viewer.isDestroyed()) return false;
 
       const trimmed = query.trim();
       if (!trimmed) return false;
 
-      const coordMatch = trimmed.match(
-        /^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/,
-      );
+      const coordMatch = trimmed.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
       if (coordMatch) {
         const lat = Number(coordMatch[1]);
         const lng = Number(coordMatch[2]);
@@ -276,11 +276,7 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
           viewer.trackedEntity = undefined;
           viewer.camera.flyTo({
             destination: Cartesian3.fromDegrees(lng, lat, 12_000),
-            orientation: {
-              heading: 0,
-              pitch: CesiumMath.toRadians(-55),
-              roll: 0,
-            },
+            orientation: { heading: 0, pitch: CesiumMath.toRadians(-55), roll: 0 },
             duration: 2,
           });
           return true;
@@ -294,16 +290,14 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
         );
         const results = (await response.json()) as Array<{ lat: string; lon: string }>;
         if (!results.length) return false;
-        const lat = Number(results[0].lat);
-        const lng = Number(results[0].lon);
         viewer.trackedEntity = undefined;
         viewer.camera.flyTo({
-          destination: Cartesian3.fromDegrees(lng, lat, 18_000),
-          orientation: {
-            heading: 0,
-            pitch: CesiumMath.toRadians(-55),
-            roll: 0,
-          },
+          destination: Cartesian3.fromDegrees(
+            Number(results[0].lon),
+            Number(results[0].lat),
+            18_000,
+          ),
+          orientation: { heading: 0, pitch: CesiumMath.toRadians(-55), roll: 0 },
           duration: 2,
         });
         return true;
@@ -313,14 +307,17 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
     },
   }));
 
-  // Initialize Cesium viewer once
+  // Create viewer exactly once — never re-run on prop/callback changes
   useEffect(() => {
     const container = containerRef.current;
     if (!container || viewerRef.current) return;
 
+    let destroyed = false;
+
     const viewer = new Viewer(container, {
       animation: false,
       timeline: false,
+      baseLayer: false,
       baseLayerPicker: false,
       geocoder: false,
       homeButton: false,
@@ -331,7 +328,9 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
       selectionIndicator: false,
       vrButton: false,
       shouldAnimate: true,
-      msaaSamples: 2,
+      showRenderLoopErrors: false,
+      terrainProvider: new EllipsoidTerrainProvider(),
+      requestRenderMode: false,
     });
 
     viewerRef.current = viewer;
@@ -339,7 +338,7 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
 
     const controller = viewer.scene.screenSpaceCameraController;
     controller.enableCollisionDetection = true;
-    controller.minimumZoomDistance = 25;
+    controller.minimumZoomDistance = 120;
     controller.maximumZoomDistance = 50_000_000;
     controller.inertiaSpin = 0.9;
     controller.inertiaTranslate = 0.85;
@@ -348,46 +347,43 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
     controller.tiltEventTypes = [
       CameraEventType.RIGHT_DRAG,
       CameraEventType.PINCH,
-      {
-        eventType: CameraEventType.LEFT_DRAG,
-        modifier: KeyboardEventModifier.CTRL,
-      },
+      { eventType: CameraEventType.LEFT_DRAG, modifier: KeyboardEventModifier.CTRL },
     ];
     controller.rotateEventTypes = [CameraEventType.LEFT_DRAG];
 
-    viewer.scene.globe.enableLighting = true;
-    if (viewer.scene.skyAtmosphere) {
-      viewer.scene.skyAtmosphere.show = true;
-    }
-    viewer.scene.fog.enabled = true;
-    viewer.scene.fog.density = 0.00015;
-    viewer.scene.postProcessStages.fxaa.enabled = true;
+    viewer.scene.globe.enableLighting = false;
+    viewer.scene.fog.enabled = false;
+    if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true;
+
+    viewer.scene.renderError.addEventListener((_scene, error) => {
+      console.error("[Cesium] render error:", error);
+    });
 
     const markUserMoved = () => {
       userMovedRef.current = true;
-      onUserInteract?.();
-      if (followRef.current) {
-        viewer.trackedEntity = undefined;
-      }
+      onUserInteractRef.current?.();
+      if (followRef.current) viewer.trackedEntity = undefined;
     };
-
     viewer.camera.moveStart.addEventListener(markUserMoved);
 
     const reportView = () => {
+      if (destroyed || viewer.isDestroyed()) return;
       const ground = pickGroundCoords(viewer);
-      if (ground) onCoordsChange?.(ground);
-      onAltitudeChange?.(viewer.camera.positionCartographic.height);
+      if (ground) onCoordsChangeRef.current?.(ground);
+      onAltitudeChangeRef.current?.(viewer.camera.positionCartographic.height);
     };
     viewer.camera.changed.addEventListener(reportView);
 
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
+    handlerRef.current = handler;
+
     handler.setInputAction((click: { position: Cartesian2 }) => {
       const ray = viewer.camera.getPickRay(click.position);
       if (!ray) return;
       const hit = viewer.scene.globe.pick(ray, viewer.scene);
       if (!hit) return;
       const carto = Cartographic.fromCartesian(hit);
-      onCoordsChange?.({
+      onCoordsChangeRef.current?.({
         lat: CesiumMath.toDegrees(carto.latitude),
         lng: CesiumMath.toDegrees(carto.longitude),
       });
@@ -399,11 +395,13 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
       const hit = viewer.scene.globe.pick(ray, viewer.scene);
       if (!hit) return;
       const carto = Cartographic.fromCartesian(hit);
-      const lat = CesiumMath.toDegrees(carto.latitude);
-      const lng = CesiumMath.toDegrees(carto.longitude);
-      const height = Math.max(viewer.camera.positionCartographic.height * 0.4, 800);
+      const height = Math.max(viewer.camera.positionCartographic.height * 0.4, 1200);
       viewer.camera.flyTo({
-        destination: Cartesian3.fromDegrees(lng, lat, height),
+        destination: Cartesian3.fromDegrees(
+          CesiumMath.toDegrees(carto.longitude),
+          CesiumMath.toDegrees(carto.latitude),
+          height,
+        ),
         duration: 1.2,
         orientation: {
           heading: viewer.camera.heading,
@@ -413,179 +411,172 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
       });
     }, ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
-    void (async () => {
-      viewer.imageryLayers.removeAll();
-      const providers = await createLayerProviders(layerRef.current, Boolean(ionToken));
-      providers.forEach((provider, index) => {
-        const imageryLayer = viewer.imageryLayers.addImageryProvider(provider);
-        if (index === 1) {
-          imageryLayer.alpha = 0.72;
-        }
-      });
-
-      await applyTerrain(viewer, terrainEnabled);
-
-      if (buildingsEnabled && ionToken) {
-        try {
-          buildingsRef.current = await createOsmBuildingsAsync();
-          viewer.scene.primitives.add(buildingsRef.current);
-        } catch {
-          /* buildings optional */
-        }
-      }
-
-      reportView();
-    })();
-
     const packageEntity = viewer.entities.add({
       id: PACKAGE_ENTITY_ID,
       position: new CallbackPositionProperty(() => {
         const { lat, lng } = packagePositionRef.current;
-        return Cartesian3.fromDegrees(lng, lat, 120);
+        return Cartesian3.fromDegrees(lng, lat, 500);
       }, false),
       point: {
-        pixelSize: 16,
+        pixelSize: 14,
         color: cssColor("#38bdf8"),
         outlineColor: Color.WHITE,
         outlineWidth: 2,
-        heightReference: HeightReference.RELATIVE_TO_GROUND,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
       label: {
-        text: "📬 LIVE",
-        font: "bold 13px monospace",
+        text: "LIVE",
+        font: "bold 12px sans-serif",
         fillColor: Color.WHITE,
-        outlineColor: cssColor("#0ea5e9"),
-        outlineWidth: 3,
+        outlineColor: Color.BLACK,
+        outlineWidth: 2,
         style: LabelStyle.FILL_AND_OUTLINE,
         verticalOrigin: VerticalOrigin.BOTTOM,
-        pixelOffset: new Cartesian2(0, -28),
-        heightReference: HeightReference.RELATIVE_TO_GROUND,
+        pixelOffset: new Cartesian2(0, -18),
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
-      path: {
-        show: true,
-        width: 2,
-        material: cssColor("#38bdf8", 0.55),
-        leadTime: 0,
-        trailTime: 180,
-      },
-      viewFrom: new Cartesian3(-6_500, -6_500, 4_500),
+      viewFrom: new Cartesian3(-8000, -8000, 5000),
     });
     packageEntityRef.current = packageEntity;
 
+    if (!destroyed) setViewerReady(true);
+
     return () => {
+      destroyed = true;
+      setViewerReady(false);
       handler.destroy();
-      viewer.destroy();
+      handlerRef.current = null;
+      if (!viewer.isDestroyed()) viewer.destroy();
       viewerRef.current = null;
       packageEntityRef.current = null;
       buildingsRef.current = null;
     };
-  }, [buildingsEnabled, onAltitudeChange, onCoordsChange, onUserInteract, terrainEnabled]);
+  }, []);
 
-  // Switch imagery layer
+  // Imagery layers — single loader, no race with init
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewer) return;
+    if (!viewer || !viewerReady || viewer.isDestroyed()) return;
 
     let cancelled = false;
     void (async () => {
-      const providers = await createLayerProviders(layer, Boolean(ionToken));
-      if (cancelled) return;
-      viewer.imageryLayers.removeAll();
-      providers.forEach((provider, index) => {
-        const imageryLayer: ImageryLayer = viewer.imageryLayers.addImageryProvider(provider);
-        if (index === 1) {
-          imageryLayer.alpha = 0.72;
+      try {
+        const providers = await createLayerProviders(layer);
+        if (cancelled || viewer.isDestroyed()) return;
+        viewer.imageryLayers.removeAll();
+        for (const [index, provider] of providers.entries()) {
+          const imageryLayer = viewer.imageryLayers.addImageryProvider(provider);
+          if (index === 1) imageryLayer.alpha = 0.72;
         }
-      });
+      } catch (error) {
+        console.error("[Cesium] imagery load failed:", error);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [layer]);
+  }, [layer, viewerReady]);
 
-  // Follow camera on live package
+  // Terrain toggle
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || !viewerReady || viewer.isDestroyed()) return;
+    void applyTerrain(viewer, terrainEnabled);
+  }, [terrainEnabled, viewerReady]);
+
+  // 3D buildings — off by default; only load when explicitly enabled
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || !viewerReady || viewer.isDestroyed() || !hasValidIonToken()) return;
+
+    void (async () => {
+      if (buildingsEnabled) {
+        if (!buildingsRef.current) {
+          try {
+            buildingsRef.current = await createOsmBuildingsAsync();
+            if (!viewer.isDestroyed()) {
+              viewer.scene.primitives.add(buildingsRef.current);
+            }
+          } catch {
+            /* optional */
+          }
+        } else {
+          buildingsRef.current.show = true;
+        }
+      } else if (buildingsRef.current) {
+        buildingsRef.current.show = false;
+      }
+    })();
+  }, [buildingsEnabled, viewerReady]);
+
+  // Follow camera
   useEffect(() => {
     const viewer = viewerRef.current;
     const entity = packageEntityRef.current;
-    if (!viewer || !entity) return;
+    if (!viewer || !entity || viewer.isDestroyed()) return;
 
     if (followPackage && !userMovedRef.current) {
       viewer.trackedEntity = entity;
     } else if (!followPackage) {
       viewer.trackedEntity = undefined;
     }
-  }, [currentLat, currentLng, followPackage]);
+  }, [currentLat, currentLng, followPackage, viewerReady]);
 
   // Route overlays
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewer) return;
+    if (!viewer || !viewerReady || viewer.isDestroyed()) return;
 
     viewer.entities.removeById(ROUTE_FULL_ID);
     viewer.entities.removeById(ROUTE_ACTIVE_ID);
+    for (let i = 0; i < 20; i++) viewer.entities.removeById(`livetrack-stop-${i}`);
 
     if (!route?.waypoints.length) return;
 
     const paths = buildRoutePaths(route);
-    const fullPath = paths[0];
-    if (fullPath) {
-      const positions = fullPath.coords.flatMap(([lat, lng]) => [lng, lat]);
+
+    const addPolyline = (id: string, coords: [number, number][], color: string, width: number) => {
+      const flat = coords.flatMap(([lat, lng]) => [lng, lat]);
       viewer.entities.add({
-        id: ROUTE_FULL_ID,
+        id,
         polyline: {
-          positions: Cartesian3.fromDegreesArray(positions),
-          width: 4,
-          material: cssColor("#64748b", 0.85),
-          clampToGround: true,
+          positions: Cartesian3.fromDegreesArray(flat),
+          width,
+          material: cssColor(color),
           arcType: ArcType.GEODESIC,
         },
       });
-    }
+    };
 
-    const activePath = paths[1];
-    if (activePath) {
-      const positions = activePath.coords.flatMap(([lat, lng]) => [lng, lat]);
-      viewer.entities.add({
-        id: ROUTE_ACTIVE_ID,
-        polyline: {
-          positions: Cartesian3.fromDegreesArray(positions),
-          width: 5,
-          material: cssColor("#38bdf8", 0.95),
-          clampToGround: true,
-          arcType: ArcType.GEODESIC,
-        },
-      });
-    }
+    if (paths[0]) addPolyline(ROUTE_FULL_ID, paths[0].coords, "#64748b", 3);
+    if (paths[1]) addPolyline(ROUTE_ACTIVE_ID, paths[1].coords, "#38bdf8", 4);
 
-    const stops = buildStopPoints(route);
-    stops.forEach((stop, index) => {
+    buildStopPoints(route).forEach((stop, index) => {
       viewer.entities.add({
         id: `livetrack-stop-${index}`,
-        position: Cartesian3.fromDegrees(stop.lng, stop.lat, 80),
+        position: Cartesian3.fromDegrees(stop.lng, stop.lat, 500),
         point: {
-          pixelSize: 10 + stop.size * 18,
+          pixelSize: 8 + stop.size * 14,
           color: stopColor(stop.color),
           outlineColor: Color.WHITE.withAlpha(0.9),
-          outlineWidth: 1.5,
-          heightReference: HeightReference.RELATIVE_TO_GROUND,
+          outlineWidth: 1,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
-          text: stop.label,
-          font: "11px monospace",
+          text: stop.name,
+          font: "11px sans-serif",
           fillColor: Color.WHITE,
           outlineColor: Color.BLACK,
           outlineWidth: 2,
           style: LabelStyle.FILL_AND_OUTLINE,
           verticalOrigin: VerticalOrigin.BOTTOM,
-          pixelOffset: new Cartesian2(0, -16),
-          heightReference: HeightReference.RELATIVE_TO_GROUND,
+          pixelOffset: new Cartesian2(0, -12),
           showBackground: true,
-          backgroundColor: cssColor("#0f172a", 0.72),
-          backgroundPadding: new Cartesian2(8, 4),
-          distanceDisplayCondition: new DistanceDisplayCondition(0, 2_500_000),
+          backgroundColor: cssColor("#0f172a", 0.75),
+          backgroundPadding: new Cartesian2(6, 4),
+          distanceDisplayCondition: new DistanceDisplayCondition(0, 3_000_000),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
       });
     });
@@ -595,19 +586,11 @@ export const GlobeMap = forwardRef<GlobeMapHandle, GlobeMapProps>(function Globe
       const positions = route.waypoints.map((w) => Cartesian3.fromDegrees(w.lng, w.lat, 800));
       const sphere = BoundingSphere.fromPoints(positions);
       viewer.camera.flyToBoundingSphere(sphere, {
-        duration: 2.2,
+        duration: 2,
         offset: new HeadingPitchRange(0, CesiumMath.toRadians(-38), sphere.radius * 2.8),
       });
     }
-
-    return () => {
-      viewer.entities.removeById(ROUTE_FULL_ID);
-      viewer.entities.removeById(ROUTE_ACTIVE_ID);
-      stops.forEach((_, index) => {
-        viewer.entities.removeById(`livetrack-stop-${index}`);
-      });
-    };
-  }, [fitRouteOnLoad, route]);
+  }, [fitRouteOnLoad, route, viewerReady]);
 
   return (
     <div
