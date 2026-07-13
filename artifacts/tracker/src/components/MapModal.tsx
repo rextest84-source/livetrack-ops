@@ -18,6 +18,10 @@ import {
   ZoomOut,
   RotateCcw,
   Globe2,
+  Search,
+  Mountain,
+  Building2,
+  Map,
 } from "lucide-react";
 
 const GlobeMap = lazy(() =>
@@ -55,6 +59,14 @@ export function MapModal({
   const [bearing, setBearing] = useState<number | null>(null);
   const [showLegend, setShowLegend] = useState(false);
   const [followLive, setFollowLive] = useState(true);
+  const [terrainOn, setTerrainOn] = useState(true);
+  const [buildingsOn, setBuildingsOn] = useState(true);
+  const [sceneMode, setSceneMode] = useState<"3d" | "2d">("3d");
+  const [altitudeM, setAltitudeM] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  const hasIon = Boolean(import.meta.env.VITE_CESIUM_ION_TOKEN);
 
   useEffect(() => {
     const fromLat = currentPosRef.current.lat;
@@ -103,7 +115,10 @@ export function MapModal({
           layer={activeLayer}
           followPackage={followLive}
           fitRouteOnLoad
+          terrainEnabled={terrainOn}
+          buildingsEnabled={buildingsOn}
           onCoordsChange={setCoords}
+          onAltitudeChange={setAltitudeM}
           onUserInteract={() => setFollowLive(false)}
         />
       </Suspense>
@@ -126,6 +141,24 @@ export function MapModal({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <form
+              className="flex items-center bg-card/90 border border-primary/20 rounded-md overflow-hidden"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setSearchError(null);
+                const ok = await globeRef.current?.searchLocation(searchQuery);
+                if (!ok) setSearchError("Location not found");
+              }}
+            >
+              <Search className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-muted-foreground mx-1.5 sm:mx-2 shrink-0" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search city or lat,lng"
+                className="bg-transparent text-[10px] sm:text-xs w-28 sm:w-44 outline-none placeholder:text-muted-foreground/70 py-1 sm:py-1.5 pr-2"
+              />
+            </form>
+
             <div className="flex items-center bg-card/90 border border-primary/20 rounded-md overflow-hidden">
               <Layers className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-muted-foreground mx-1.5 sm:mx-2 shrink-0" />
               {(Object.keys(GLOBE_TEXTURES) as GlobeLayer[]).map((key) => (
@@ -144,7 +177,15 @@ export function MapModal({
             </div>
 
             <button
-              onClick={() => setFollowLive((value) => !value)}
+              onClick={() => {
+                setFollowLive((value) => {
+                  const next = !value;
+                  if (next) {
+                    globeRef.current?.flyToPackage(currentLat, currentLng);
+                  }
+                  return next;
+                });
+              }}
               className={`flex items-center gap-1.5 border px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold uppercase transition-colors ${
                 followLive
                   ? "bg-primary text-primary-foreground border-primary"
@@ -153,6 +194,52 @@ export function MapModal({
             >
               <Crosshair className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               <span className="hidden sm:inline">{followLive ? "Following" : "Free Cam"}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                const next = sceneMode === "3d" ? "2d" : "3d";
+                setSceneMode(next);
+                globeRef.current?.setSceneMode(next);
+              }}
+              className="flex items-center gap-1.5 bg-card/90 border border-primary/20 hover:border-primary/60 text-foreground px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold uppercase transition-colors"
+            >
+              <Map className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-primary" />
+              <span className="hidden sm:inline">{sceneMode === "3d" ? "3D" : "2D"}</span>
+            </button>
+
+            {hasIon ? (
+              <button
+                onClick={() => {
+                  const next = !buildingsOn;
+                  setBuildingsOn(next);
+                  void globeRef.current?.toggleBuildings(next);
+                }}
+                className={`flex items-center gap-1.5 border px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold uppercase transition-colors ${
+                  buildingsOn
+                    ? "bg-primary/15 border-primary text-primary"
+                    : "bg-card/90 border-primary/20 text-foreground"
+                }`}
+              >
+                <Building2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                <span className="hidden sm:inline">3D Buildings</span>
+              </button>
+            ) : null}
+
+            <button
+              onClick={() => {
+                const next = !terrainOn;
+                setTerrainOn(next);
+                void globeRef.current?.toggleTerrain(next);
+              }}
+              className={`flex items-center gap-1.5 border px-2 sm:px-3 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-bold uppercase transition-colors ${
+                terrainOn
+                  ? "bg-primary/15 border-primary text-primary"
+                  : "bg-card/90 border-primary/20 text-foreground"
+              }`}
+            >
+              <Mountain className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+              <span className="hidden sm:inline">Terrain</span>
             </button>
 
             <button
@@ -193,6 +280,14 @@ export function MapModal({
           </div>
         </div>
 
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-40">
+          <div className="relative h-10 w-10">
+            <div className="absolute inset-0 rounded-full border border-primary/50" />
+            <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-primary/40" />
+            <div className="absolute top-1/2 left-0 w-full h-px -translate-y-1/2 bg-primary/40" />
+          </div>
+        </div>
+
         <div className="absolute right-3 sm:right-4 top-24 sm:top-28 flex flex-col gap-2 pointer-events-auto">
           <GlobeControlButton label="Zoom in" onClick={() => globeRef.current?.zoomIn()}>
             <ZoomIn className="w-4 h-4" />
@@ -210,6 +305,17 @@ export function MapModal({
             <HudMetric label="Lat" value={coords.lat.toFixed(5)} />
             <HudDivider />
             <HudMetric label="Lng" value={coords.lng.toFixed(5)} />
+            <HudDivider />
+            <HudMetric
+              label="Alt"
+              value={
+                altitudeM !== null
+                  ? altitudeM >= 1000
+                    ? `${(altitudeM / 1000).toFixed(1)} km`
+                    : `${Math.round(altitudeM)} m`
+                  : "—"
+              }
+            />
           </HudCard>
 
           <HudCard>
@@ -251,6 +357,12 @@ export function MapModal({
           </HudCard>
         </div>
 
+        {searchError && (
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 pointer-events-auto bg-destructive/90 text-destructive-foreground text-xs px-3 py-1.5 rounded-md shadow-lg">
+            {searchError}
+          </div>
+        )}
+
         {showLegend && (
           <div className="absolute top-[52px] sm:top-[56px] right-2 sm:right-4 left-2 sm:left-auto w-auto sm:w-80 bg-background/95 backdrop-blur-md border border-primary/30 rounded-xl shadow-2xl overflow-hidden pointer-events-auto">
             <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b border-primary/20 bg-primary/5">
@@ -289,9 +401,21 @@ export function MapModal({
               </LegendSection>
 
               <LegendSection title="Layers">
-                <LegendRow label="Satellite" desc="Photo-realistic Earth texture with terrain bump" />
-                <LegendRow label="Street" desc="Dark tactical map view for night ops" />
-                <LegendRow label="Hybrid" desc="Balanced day-lit Earth with labels-friendly contrast" />
+                <LegendRow label="Satellite" desc="High-resolution Esri satellite tiles — sharp at street level" />
+                <LegendRow label="Street" desc="Roads, cities, and place names" />
+                <LegendRow label="Hybrid" desc="Satellite imagery with labels overlay" />
+              </LegendSection>
+
+              <LegendSection title="3D">
+                <LegendRow label="Terrain" desc="Real elevation mesh — Esri worldwide terrain, or Cesium World Terrain with Ion" />
+                {hasIon && (
+                  <LegendRow label="3D Buildings" desc="OpenStreetMap 3D building extrusions via Cesium Ion" />
+                )}
+              </LegendSection>
+
+              <LegendSection title="Search">
+                <LegendRow label="City search" desc="Type a place name and press Enter to fly there" />
+                <LegendRow label="Coordinates" desc="Enter lat,lng (e.g. 40.7128,-74.0060) to jump directly" />
               </LegendSection>
 
               <LegendSection title="Tracking">

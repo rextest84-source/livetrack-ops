@@ -1,5 +1,7 @@
 export type GlobeLayer = "satellite" | "street" | "hybrid";
 
+export const LAYER_OPTIONS: GlobeLayer[] = ["satellite", "street", "hybrid"];
+
 export interface RouteStop {
   name: string;
   lat: number;
@@ -29,29 +31,11 @@ export interface GlobePoint {
   altitude?: number;
 }
 
-export const GLOBE_TEXTURES: Record<
-  GlobeLayer,
-  { globe: string; bump?: string; label: string }
-> = {
-  satellite: {
-    label: "Satellite",
-    globe: "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg",
-    bump: "https://unpkg.com/three-globe/example/img/earth-topology.png",
-  },
-  street: {
-    label: "Street",
-    globe: "https://unpkg.com/three-globe/example/img/earth-dark.jpg",
-    bump: "https://unpkg.com/three-globe/example/img/earth-topology.png",
-  },
-  hybrid: {
-    label: "Hybrid",
-    globe: "https://unpkg.com/three-globe/example/img/earth-day.jpg",
-    bump: "https://unpkg.com/three-globe/example/img/earth-topology.png",
-  },
+export const GLOBE_TEXTURES: Record<GlobeLayer, { label: string }> = {
+  satellite: { label: "Satellite" },
+  street: { label: "Street" },
+  hybrid: { label: "Hybrid" },
 };
-
-export const GLOBE_BACKGROUND =
-  "https://unpkg.com/three-globe/example/img/night-sky.png";
 
 export function buildRoutePaths(route: RouteData): GlobePath[] {
   const coords = route.waypoints.map((w) => [w.lat, w.lng] as [number, number]);
