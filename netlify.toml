@@ -24,7 +24,8 @@
   SERVERLESS = "true"
 
 [functions]
-  node_bundler = "esbuild"
+  node_bundler = "none"
+  included_files = []
 
 [[redirects]]
   from = "/api/*"
