@@ -7,6 +7,19 @@
   NODE_VERSION = "22"
   BASE_PATH = "/"
   PORT = "5173"
+
+[context.production.environment]
+  NODE_ENV = "production"
+  NETLIFY = "true"
+  SERVERLESS = "true"
+
+[context.deploy-preview.environment]
+  NODE_ENV = "production"
+  NETLIFY = "true"
+  SERVERLESS = "true"
+
+[context.branch-deploy.environment]
+  NODE_ENV = "production"
   NETLIFY = "true"
   SERVERLESS = "true"
 
