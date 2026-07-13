@@ -13,14 +13,28 @@ import {
   getViewerCount,
   sendSseEvent,
 } from "../lib/sse.js";
-import { getRouteData } from "../lib/simulation.js";
+import { getComputedLocation, getRouteData, isServerlessRuntime } from "../lib/simulation.js";
+import type { Package } from "@workspace/db";
 
 const router: IRouter = Router();
+
+function withLiveLocation<T extends Package>(pkg: T): T {
+  const live = getComputedLocation(pkg.trackingId);
+  if (!live) return pkg;
+
+  return {
+    ...pkg,
+    currentLat: live.lat,
+    currentLng: live.lng,
+    progressPct: live.progressPct,
+    currentLocationName: live.currentLocationName,
+  };
+}
 
 // GET /packages
 router.get("/packages", async (_req, res): Promise<void> => {
   const packages = await db.select().from(packagesTable);
-  res.json(packages);
+  res.json(packages.map(withLiveLocation));
 });
 
 // GET /packages/:trackingId
@@ -38,7 +52,7 @@ router.get("/packages/:trackingId", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Package not found" });
     return;
   }
-  res.json(pkg);
+  res.json(withLiveLocation(pkg));
 });
 
 // GET /packages/:trackingId/route
@@ -98,8 +112,15 @@ router.get("/packages/:trackingId/history", async (req, res): Promise<void> => {
   );
 });
 
-// GET /packages/:trackingId/stream  — SSE
+// GET /packages/:trackingId/stream  — SSE (local dev only; Netlify uses polling)
 router.get("/packages/:trackingId/stream", async (req, res): Promise<void> => {
+  if (isServerlessRuntime()) {
+    res.status(501).json({
+      error: "Live streaming is unavailable in serverless mode. Use polling instead.",
+    });
+    return;
+  }
+
   const trackingId = Array.isArray(req.params.trackingId)
     ? req.params.trackingId[0]
     : req.params.trackingId;
@@ -119,11 +140,12 @@ router.get("/packages/:trackingId/stream", async (req, res): Promise<void> => {
       .from(packagesTable)
       .where(eq(packagesTable.trackingId, trackingId));
     if (pkg) {
+      const live = withLiveLocation(pkg);
       sendSseEvent(res, "location", {
-        lat: pkg.currentLat,
-        lng: pkg.currentLng,
-        progressPct: pkg.progressPct,
-        currentLocationName: pkg.currentLocationName,
+        lat: live.currentLat,
+        lng: live.currentLng,
+        progressPct: live.progressPct,
+        currentLocationName: live.currentLocationName,
       });
       sendSseEvent(res, "status", { status: pkg.status });
     }

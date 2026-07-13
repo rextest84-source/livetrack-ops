@@ -1,29 +1,24 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "wouter";
 import { 
   useGetPackage, 
   useGetPackageRoute, 
   useGetPackageViewers, 
   useGetPackageHistory,
-  getPackageQueryKey,
-  getPackageViewersQueryKey,
-  getPackageHistoryQueryKey,
 } from "@workspace/api-client-react";
 import { TrackingMap } from "@/components/TrackingMap";
 import { MapModal } from "@/components/MapModal";
 import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Eye, ArrowLeft, Package as PackageIcon, MapPin, Activity, Map } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { TrackingEvent } from "@workspace/api-zod/src/generated/types";
 
 export default function Track() {
   const { trackingId } = useParams<{ trackingId: string }>();
-  const queryClient = useQueryClient();
 
   // Queries
+  const [usePolling, setUsePolling] = useState(false);
+
   const { data: pkgData, isLoading: isLoadingPkg } = useGetPackage(trackingId, {
-    query: { refetchInterval: 30000 }
+    query: { refetchInterval: usePolling ? 2000 : 30000 }
   });
   
   const { data: routeData } = useGetPackageRoute(trackingId);
@@ -46,11 +41,16 @@ export default function Track() {
   useEffect(() => { if (viewersData) setLiveViewers(viewersData.viewers); }, [viewersData]);
   useEffect(() => { if (historyData) setLiveHistory(historyData); }, [historyData]);
 
-  // SSE Connection
+  // SSE Connection (local dev); fall back to polling on Netlify/serverless
   useEffect(() => {
     if (!trackingId) return;
     
     const es = new EventSource(`/api/packages/${trackingId}/stream`);
+
+    es.onerror = () => {
+      es.close();
+      setUsePolling(true);
+    };
     
     es.addEventListener('location', (e) => { 
       const { lat, lng, progressPct, currentLocationName } = JSON.parse(e.data);

@@ -1,0 +1,26 @@
+[build]
+  command = "pnpm run build:netlify"
+  publish = "artifacts/tracker/dist/public"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+  BASE_PATH = "/"
+  PORT = "5173"
+  NETLIFY = "true"
+  SERVERLESS = "true"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["artifacts/api-server/dist/**"]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

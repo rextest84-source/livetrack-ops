@@ -5,12 +5,18 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "build:netlify": "pnpm run typecheck:libs && pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/tracker run build",
+    "dev:web": "pnpm --filter @workspace/tracker run dev",
+    "dev:api": "PORT=5000 pnpm --filter @workspace/api-server run dev",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
   "private": true,
   "devDependencies": {
+    "@netlify/functions": "^2.8.2",
+    "@types/aws-lambda": "^8.10.152",
     "prettier": "^3.8.4",
+    "serverless-http": "^3.2.0",
     "typescript": "~5.9.3"
   }
 }
