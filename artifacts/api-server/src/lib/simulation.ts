@@ -112,11 +112,84 @@ interface SimState {
   progress: number; // 0→1 between waypointIdx and waypointIdx+1
 }
 
-const simStates: Record<string, SimState> = {
+// Initial simulation offsets (used as the starting point for time-based updates)
+const INITIAL_STATES: Record<string, SimState> = {
   "LT-2024-881923": { waypointIdx: 11, progress: 0.0 },
   "LT-2024-443712": { waypointIdx: 4, progress: 0.0 },
   "LT-2024-991047": { waypointIdx: 5, progress: 0.0 },
 };
+
+const simStates: Record<string, SimState> = { ...INITIAL_STATES };
+
+const SIM_ANCHOR_MS = Date.parse("2024-07-01T12:00:00.000Z");
+const TICK_MS = 1500;
+const STEP = 0.004; // per-tick interpolation step
+
+export function isServerlessRuntime(): boolean {
+  return Boolean(
+    process.env.NETLIFY ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.SERVERLESS,
+  );
+}
+
+function advanceState(state: SimState, route: RouteData, ticks: number): SimState {
+  const maxIdx = route.waypoints.length - 2;
+  let { waypointIdx, progress } = state;
+
+  for (let i = 0; i < ticks; i++) {
+    if (waypointIdx >= maxIdx && progress >= 1) break;
+
+    progress += STEP;
+    if (progress >= 1) {
+      progress = 0;
+      waypointIdx = Math.min(waypointIdx + 1, maxIdx);
+    }
+  }
+
+  return {
+    waypointIdx: Math.min(waypointIdx, maxIdx),
+    progress: Math.min(progress, 1),
+  };
+}
+
+function getElapsedSimState(trackingId: string): SimState | null {
+  const route = ROUTES[trackingId];
+  const initial = INITIAL_STATES[trackingId];
+  if (!route || !initial) return null;
+
+  const ticks = Math.max(0, Math.floor((Date.now() - SIM_ANCHOR_MS) / TICK_MS));
+  return advanceState(initial, route, ticks);
+}
+
+export interface ComputedLocation {
+  lat: number;
+  lng: number;
+  progressPct: number;
+  currentLocationName: string;
+}
+
+export function getComputedLocation(trackingId: string): ComputedLocation | null {
+  const route = ROUTES[trackingId];
+  const state = isServerlessRuntime()
+    ? getElapsedSimState(trackingId)
+    : simStates[trackingId] ?? getElapsedSimState(trackingId);
+
+  if (!route || !state) return null;
+
+  const maxIdx = route.waypoints.length - 2;
+  const from = route.waypoints[state.waypointIdx];
+  const to = route.waypoints[Math.min(state.waypointIdx + 1, maxIdx)];
+  const lat = lerp(from.lat, to.lat, state.progress);
+  const lng = lerp(from.lng, to.lng, state.progress);
+
+  return {
+    lat,
+    lng,
+    progressPct: computeProgress(route, state),
+    currentLocationName: nearestStopName(route, lat, lng),
+  };
+}
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -143,9 +216,12 @@ export function getAllTrackingIds(): string[] {
   return Object.keys(ROUTES);
 }
 
-const STEP = 0.004; // per-tick interpolation step
-
 export function startSimulation(): void {
+  if (isServerlessRuntime()) {
+    logger.info("Skipping background simulation in serverless runtime");
+    return;
+  }
+
   setInterval(async () => {
     for (const [trackingId, state] of Object.entries(simStates)) {
       const route = ROUTES[trackingId];
