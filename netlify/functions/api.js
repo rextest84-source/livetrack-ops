@@ -4158,6 +4158,62 @@ var init_health = __esm({
   }
 });
 
+// artifacts/api-server/src/lib/sse.ts
+function addSseClient(trackingId, res) {
+  const client = { res, trackingId };
+  if (!clients.has(trackingId)) {
+    clients.set(trackingId, /* @__PURE__ */ new Set());
+  }
+  clients.get(trackingId).add(client);
+  broadcastViewers(trackingId);
+  return client;
+}
+function removeSseClient(trackingId, client) {
+  const group = clients.get(trackingId);
+  if (group) {
+    group.delete(client);
+    if (group.size === 0) {
+      clients.delete(trackingId);
+    } else {
+      broadcastViewers(trackingId);
+    }
+  }
+}
+function getViewerCount(trackingId) {
+  return clients.get(trackingId)?.size ?? 0;
+}
+function broadcastToPackage(trackingId, eventName, data) {
+  const group = clients.get(trackingId);
+  if (!group || group.size === 0) return;
+  const payload = `event: ${eventName}
+data: ${JSON.stringify(data)}
+
+`;
+  for (const client of group) {
+    try {
+      client.res.write(payload);
+    } catch {
+    }
+  }
+}
+function broadcastViewers(trackingId) {
+  const count = getViewerCount(trackingId);
+  broadcastToPackage(trackingId, "viewers", { trackingId, viewers: count });
+}
+function sendSseEvent(res, eventName, data) {
+  res.write(`event: ${eventName}
+data: ${JSON.stringify(data)}
+
+`);
+}
+var clients;
+var init_sse = __esm({
+  "artifacts/api-server/src/lib/sse.ts"() {
+    "use strict";
+    clients = /* @__PURE__ */ new Map();
+  }
+});
+
 // node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/drizzle-orm/entity.js
 function is(value, type) {
   if (!value || typeof value !== "object") {
@@ -24472,9 +24528,17 @@ function getDatabaseUrl() {
   }
   return url2;
 }
+function shouldUseSsl(connectionString) {
+  return process.env.PGSSLMODE === "require" || /sslmode=require/i.test(connectionString) || connectionString.includes("railway.app") || connectionString.includes("neon.tech") || connectionString.includes("supabase.co");
+}
 function createPool() {
   if (!poolInstance) {
-    poolInstance = new Pool2({ connectionString: getDatabaseUrl() });
+    const connectionString = getDatabaseUrl();
+    poolInstance = new Pool2({
+      connectionString,
+      ssl: shouldUseSsl(connectionString) ? { rejectUnauthorized: false } : void 0,
+      max: process.env.NETLIFY || process.env.SERVERLESS ? 1 : 10
+    });
   }
   return poolInstance;
 }
@@ -24503,62 +24567,6 @@ var init_src2 = __esm({
         return Reflect.get(createDb(), prop, receiver);
       }
     });
-  }
-});
-
-// artifacts/api-server/src/lib/sse.ts
-function addSseClient(trackingId, res) {
-  const client = { res, trackingId };
-  if (!clients.has(trackingId)) {
-    clients.set(trackingId, /* @__PURE__ */ new Set());
-  }
-  clients.get(trackingId).add(client);
-  broadcastViewers(trackingId);
-  return client;
-}
-function removeSseClient(trackingId, client) {
-  const group = clients.get(trackingId);
-  if (group) {
-    group.delete(client);
-    if (group.size === 0) {
-      clients.delete(trackingId);
-    } else {
-      broadcastViewers(trackingId);
-    }
-  }
-}
-function getViewerCount(trackingId) {
-  return clients.get(trackingId)?.size ?? 0;
-}
-function broadcastToPackage(trackingId, eventName, data) {
-  const group = clients.get(trackingId);
-  if (!group || group.size === 0) return;
-  const payload = `event: ${eventName}
-data: ${JSON.stringify(data)}
-
-`;
-  for (const client of group) {
-    try {
-      client.res.write(payload);
-    } catch {
-    }
-  }
-}
-function broadcastViewers(trackingId) {
-  const count = getViewerCount(trackingId);
-  broadcastToPackage(trackingId, "viewers", { trackingId, viewers: count });
-}
-function sendSseEvent(res, eventName, data) {
-  res.write(`event: ${eventName}
-data: ${JSON.stringify(data)}
-
-`);
-}
-var clients;
-var init_sse = __esm({
-  "artifacts/api-server/src/lib/sse.ts"() {
-    "use strict";
-    clients = /* @__PURE__ */ new Map();
   }
 });
 
@@ -24651,9 +24659,6 @@ function nearestStopName(route, lat, lng) {
 }
 function getRouteData(trackingId) {
   return ROUTES[trackingId] ?? null;
-}
-function getAllTrackingIds() {
-  return Object.keys(ROUTES);
 }
 var ROUTES, INITIAL_STATES, simStates, SIM_ANCHOR_MS, TICK_MS, STEP;
 var init_simulation = __esm({
@@ -24757,41 +24762,36 @@ var init_simulation = __esm({
   }
 });
 
-// artifacts/api-server/src/lib/seed.ts
-function ensureSeeded() {
-  if (!seedPromise) {
-    seedPromise = seedPackages().catch((err) => {
-      seedPromise = null;
-      throw err;
-    });
-  }
-  return seedPromise;
+// artifacts/api-server/src/lib/demo-packages.ts
+function toLivePackage(base) {
+  const live = getComputedLocation(base.trackingId);
+  return {
+    ...base,
+    currentLat: live?.lat ?? 0,
+    currentLng: live?.lng ?? 0,
+    progressPct: live?.progressPct ?? 0,
+    currentLocationName: live?.currentLocationName ?? "In Transit"
+  };
 }
-async function seedPackages() {
-  const existing = await db.select({ trackingId: packagesTable.trackingId }).from(packagesTable);
-  const existingIds = new Set(existing.map((row) => row.trackingId));
-  for (const pkg of SEED_PACKAGES) {
-    if (existingIds.has(pkg.trackingId)) continue;
-    const location = getComputedLocation(pkg.trackingId);
-    if (!location) continue;
-    await db.insert(packagesTable).values({
-      ...pkg,
-      currentLat: location.lat,
-      currentLng: location.lng,
-      progressPct: location.progressPct,
-      currentLocationName: location.currentLocationName
-    });
-  }
-  logger.info({ count: getAllTrackingIds().length }, "Package seed data ensured");
+function getDemoPackages() {
+  return DEMO_PACKAGES.map(toLivePackage);
 }
-var SEED_PACKAGES, seedPromise;
-var init_seed = __esm({
-  "artifacts/api-server/src/lib/seed.ts"() {
+function getDemoPackage(trackingId) {
+  const base = DEMO_PACKAGES.find((pkg) => pkg.trackingId === trackingId);
+  return base ? toLivePackage(base) : null;
+}
+function getDemoHistory(trackingId) {
+  return DEMO_HISTORY[trackingId] ?? [];
+}
+function isKnownTrackingId(trackingId) {
+  return DEMO_PACKAGES.some((pkg) => pkg.trackingId === trackingId);
+}
+var DEMO_PACKAGES, DEMO_HISTORY;
+var init_demo_packages = __esm({
+  "artifacts/api-server/src/lib/demo-packages.ts"() {
     "use strict";
-    init_src2();
     init_simulation();
-    init_logger2();
-    SEED_PACKAGES = [
+    DEMO_PACKAGES = [
       {
         trackingId: "LT-2024-881923",
         status: "In Transit",
@@ -24823,11 +24823,67 @@ var init_seed = __esm({
         signatureRequired: true
       }
     ];
-    seedPromise = null;
+    DEMO_HISTORY = {
+      "LT-2024-881923": [
+        {
+          id: 1,
+          trackingId: "LT-2024-881923",
+          message: "Departed Los Angeles distribution center",
+          location: "Los Angeles, CA",
+          timestamp: "2024-06-30T16:00:00.000Z"
+        },
+        {
+          id: 2,
+          trackingId: "LT-2024-881923",
+          message: "Arrived at Las Vegas sorting facility",
+          location: "Las Vegas, NV",
+          timestamp: "2024-06-30T21:30:00.000Z"
+        },
+        {
+          id: 3,
+          trackingId: "LT-2024-881923",
+          message: "In transit to Denver, CO",
+          location: "Salt Lake City, UT",
+          timestamp: "2024-07-01T03:00:00.000Z"
+        }
+      ],
+      "LT-2024-443712": [
+        {
+          id: 4,
+          trackingId: "LT-2024-443712",
+          message: "Package scanned at New York hub",
+          location: "New York, NY",
+          timestamp: "2024-07-01T12:00:00.000Z"
+        },
+        {
+          id: 5,
+          trackingId: "LT-2024-443712",
+          message: "En route to Baltimore, MD",
+          location: "Philadelphia, PA",
+          timestamp: "2024-07-01T15:30:00.000Z"
+        }
+      ],
+      "LT-2024-991047": [
+        {
+          id: 6,
+          trackingId: "LT-2024-991047",
+          message: "Departed Seattle terminal",
+          location: "Seattle, WA",
+          timestamp: "2024-07-01T13:00:00.000Z"
+        },
+        {
+          id: 7,
+          trackingId: "LT-2024-991047",
+          message: "Arrived Portland sorting facility",
+          location: "Portland, OR",
+          timestamp: "2024-07-01T18:00:00.000Z"
+        }
+      ]
+    };
   }
 });
 
-// artifacts/api-server/src/routes/packages.ts
+// artifacts/api-server/src/lib/package-store.ts
 function withLiveLocation(pkg) {
   const live = getComputedLocation(pkg.trackingId);
   if (!live) return pkg;
@@ -24839,29 +24895,71 @@ function withLiveLocation(pkg) {
     currentLocationName: live.currentLocationName
   };
 }
+async function listPackages() {
+  try {
+    const packages = await db.select().from(packagesTable);
+    if (packages.length > 0) {
+      return packages.map(withLiveLocation);
+    }
+  } catch (err) {
+    logger.warn({ err }, "Database unavailable for listPackages, using demo data");
+  }
+  return getDemoPackages();
+}
+async function getPackageByTrackingId(trackingId) {
+  try {
+    const [pkg] = await db.select().from(packagesTable).where(eq(packagesTable.trackingId, trackingId));
+    if (pkg) {
+      return withLiveLocation(pkg);
+    }
+  } catch (err) {
+    logger.warn({ err, trackingId }, "Database unavailable for getPackage, using demo data");
+  }
+  return getDemoPackage(trackingId);
+}
+async function getPackageHistory(trackingId) {
+  if (!isKnownTrackingId(trackingId)) {
+    return null;
+  }
+  try {
+    const events = await db.select().from(trackingEventsTable).where(eq(trackingEventsTable.trackingId, trackingId)).orderBy(desc(trackingEventsTable.timestamp)).limit(50);
+    if (events.length > 0) {
+      return events.map((event) => ({
+        ...event,
+        timestamp: event.timestamp.toISOString()
+      }));
+    }
+  } catch (err) {
+    logger.warn({ err, trackingId }, "Database unavailable for history, using demo data");
+  }
+  return getDemoHistory(trackingId);
+}
+var init_package_store = __esm({
+  "artifacts/api-server/src/lib/package-store.ts"() {
+    "use strict";
+    init_src2();
+    init_drizzle_orm();
+    init_demo_packages();
+    init_simulation();
+    init_logger2();
+  }
+});
+
+// artifacts/api-server/src/routes/packages.ts
 var import_express2, router2, packages_default;
 var init_packages2 = __esm({
   "artifacts/api-server/src/routes/packages.ts"() {
     "use strict";
     import_express2 = require("express");
-    init_src2();
-    init_drizzle_orm();
     init_src();
     init_sse();
     init_simulation();
-    init_seed();
+    init_package_store();
+    init_demo_packages();
     router2 = (0, import_express2.Router)();
-    router2.use(async (_req, _res, next) => {
-      try {
-        await ensureSeeded();
-        next();
-      } catch (err) {
-        next(err);
-      }
-    });
     router2.get("/packages", async (_req, res) => {
-      const packages = await db.select().from(packagesTable);
-      res.json(packages.map(withLiveLocation));
+      const packages = await listPackages();
+      res.json(packages);
     });
     router2.get("/packages/:trackingId", async (req, res) => {
       const parsed = GetPackageParams.safeParse(req.params);
@@ -24869,12 +24967,12 @@ var init_packages2 = __esm({
         res.status(400).json({ error: parsed.error.message });
         return;
       }
-      const [pkg] = await db.select().from(packagesTable).where(eq(packagesTable.trackingId, parsed.data.trackingId));
+      const pkg = await getPackageByTrackingId(parsed.data.trackingId);
       if (!pkg) {
         res.status(404).json({ error: "Package not found" });
         return;
       }
-      res.json(withLiveLocation(pkg));
+      res.json(pkg);
     });
     router2.get("/packages/:trackingId/route", async (req, res) => {
       const parsed = GetPackageRouteParams.safeParse(req.params);
@@ -24895,6 +24993,10 @@ var init_packages2 = __esm({
         res.status(400).json({ error: parsed.error.message });
         return;
       }
+      if (!isKnownTrackingId(parsed.data.trackingId)) {
+        res.status(404).json({ error: "Package not found" });
+        return;
+      }
       res.json({
         trackingId: parsed.data.trackingId,
         viewers: getViewerCount(parsed.data.trackingId)
@@ -24906,18 +25008,12 @@ var init_packages2 = __esm({
         res.status(400).json({ error: parsed.error.message });
         return;
       }
-      const [pkg] = await db.select().from(packagesTable).where(eq(packagesTable.trackingId, parsed.data.trackingId));
-      if (!pkg) {
+      const history = await getPackageHistory(parsed.data.trackingId);
+      if (history === null) {
         res.status(404).json({ error: "Package not found" });
         return;
       }
-      const events = await db.select().from(trackingEventsTable).where(eq(trackingEventsTable.trackingId, parsed.data.trackingId)).orderBy(desc(trackingEventsTable.timestamp)).limit(50);
-      res.json(
-        events.map((e) => ({
-          ...e,
-          timestamp: e.timestamp.toISOString()
-        }))
-      );
+      res.json(history);
     });
     router2.get("/packages/:trackingId/stream", async (req, res) => {
       if (isServerlessRuntime()) {
@@ -24934,14 +25030,13 @@ var init_packages2 = __esm({
       res.flushHeaders();
       const client = addSseClient(trackingId, res);
       try {
-        const [pkg] = await db.select().from(packagesTable).where(eq(packagesTable.trackingId, trackingId));
+        const pkg = await getPackageByTrackingId(trackingId);
         if (pkg) {
-          const live = withLiveLocation(pkg);
           sendSseEvent(res, "location", {
-            lat: live.currentLat,
-            lng: live.currentLng,
-            progressPct: live.progressPct,
-            currentLocationName: live.currentLocationName
+            lat: pkg.currentLat,
+            lng: pkg.currentLng,
+            progressPct: pkg.progressPct,
+            currentLocationName: pkg.currentLocationName
           });
           sendSseEvent(res, "status", { status: pkg.status });
         }

@@ -1,6 +1,4 @@
 import { Router, type IRouter } from "express";
-import { db, packagesTable, trackingEventsTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
 import {
   GetPackageParams,
   GetPackageRouteParams,
@@ -13,38 +11,20 @@ import {
   getViewerCount,
   sendSseEvent,
 } from "../lib/sse.js";
-import { getComputedLocation, getRouteData, isServerlessRuntime } from "../lib/simulation.js";
-import { ensureSeeded } from "../lib/seed.js";
-import type { Package } from "@workspace/db";
+import { getRouteData, isServerlessRuntime } from "../lib/simulation.js";
+import {
+  getPackageByTrackingId,
+  getPackageHistory,
+  listPackages,
+} from "../lib/package-store.js";
+import { isKnownTrackingId } from "../lib/demo-packages.js";
 
 const router: IRouter = Router();
 
-router.use(async (_req, _res, next) => {
-  try {
-    await ensureSeeded();
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
-
-function withLiveLocation<T extends Package>(pkg: T): T {
-  const live = getComputedLocation(pkg.trackingId);
-  if (!live) return pkg;
-
-  return {
-    ...pkg,
-    currentLat: live.lat,
-    currentLng: live.lng,
-    progressPct: live.progressPct,
-    currentLocationName: live.currentLocationName,
-  };
-}
-
 // GET /packages
 router.get("/packages", async (_req, res): Promise<void> => {
-  const packages = await db.select().from(packagesTable);
-  res.json(packages.map(withLiveLocation));
+  const packages = await listPackages();
+  res.json(packages);
 });
 
 // GET /packages/:trackingId
@@ -54,15 +34,14 @@ router.get("/packages/:trackingId", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [pkg] = await db
-    .select()
-    .from(packagesTable)
-    .where(eq(packagesTable.trackingId, parsed.data.trackingId));
+
+  const pkg = await getPackageByTrackingId(parsed.data.trackingId);
   if (!pkg) {
     res.status(404).json({ error: "Package not found" });
     return;
   }
-  res.json(withLiveLocation(pkg));
+
+  res.json(pkg);
 });
 
 // GET /packages/:trackingId/route
@@ -72,11 +51,13 @@ router.get("/packages/:trackingId/route", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+
   const routeData = getRouteData(parsed.data.trackingId);
   if (!routeData) {
     res.status(404).json({ error: "Package not found" });
     return;
   }
+
   res.json({ trackingId: parsed.data.trackingId, ...routeData });
 });
 
@@ -87,6 +68,12 @@ router.get("/packages/:trackingId/viewers", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+
+  if (!isKnownTrackingId(parsed.data.trackingId)) {
+    res.status(404).json({ error: "Package not found" });
+    return;
+  }
+
   res.json({
     trackingId: parsed.data.trackingId,
     viewers: getViewerCount(parsed.data.trackingId),
@@ -100,26 +87,14 @@ router.get("/packages/:trackingId/history", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [pkg] = await db
-    .select()
-    .from(packagesTable)
-    .where(eq(packagesTable.trackingId, parsed.data.trackingId));
-  if (!pkg) {
+
+  const history = await getPackageHistory(parsed.data.trackingId);
+  if (history === null) {
     res.status(404).json({ error: "Package not found" });
     return;
   }
-  const events = await db
-    .select()
-    .from(trackingEventsTable)
-    .where(eq(trackingEventsTable.trackingId, parsed.data.trackingId))
-    .orderBy(desc(trackingEventsTable.timestamp))
-    .limit(50);
-  res.json(
-    events.map((e) => ({
-      ...e,
-      timestamp: e.timestamp.toISOString(),
-    }))
-  );
+
+  res.json(history);
 });
 
 // GET /packages/:trackingId/stream  — SSE (local dev only; Netlify uses polling)
@@ -143,19 +118,14 @@ router.get("/packages/:trackingId/stream", async (req, res): Promise<void> => {
 
   const client = addSseClient(trackingId, res);
 
-  // Send initial state
   try {
-    const [pkg] = await db
-      .select()
-      .from(packagesTable)
-      .where(eq(packagesTable.trackingId, trackingId));
+    const pkg = await getPackageByTrackingId(trackingId);
     if (pkg) {
-      const live = withLiveLocation(pkg);
       sendSseEvent(res, "location", {
-        lat: live.currentLat,
-        lng: live.currentLng,
-        progressPct: live.progressPct,
-        currentLocationName: live.currentLocationName,
+        lat: pkg.currentLat,
+        lng: pkg.currentLng,
+        progressPct: pkg.progressPct,
+        currentLocationName: pkg.currentLocationName,
       });
       sendSseEvent(res, "status", { status: pkg.status });
     }
@@ -168,7 +138,6 @@ router.get("/packages/:trackingId/stream", async (req, res): Promise<void> => {
     viewers: getViewerCount(trackingId),
   });
 
-  // Heartbeat
   const heartbeat = setInterval(() => {
     try {
       res.write(": heartbeat\n\n");

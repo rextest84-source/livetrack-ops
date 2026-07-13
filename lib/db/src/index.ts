@@ -19,9 +19,26 @@ function getDatabaseUrl(): string {
   return url;
 }
 
+function shouldUseSsl(connectionString: string): boolean {
+  return (
+    process.env.PGSSLMODE === "require" ||
+    /sslmode=require/i.test(connectionString) ||
+    connectionString.includes("railway.app") ||
+    connectionString.includes("neon.tech") ||
+    connectionString.includes("supabase.co")
+  );
+}
+
 function createPool(): pg.Pool {
   if (!poolInstance) {
-    poolInstance = new Pool({ connectionString: getDatabaseUrl() });
+    const connectionString = getDatabaseUrl();
+    poolInstance = new Pool({
+      connectionString,
+      ssl: shouldUseSsl(connectionString)
+        ? { rejectUnauthorized: false }
+        : undefined,
+      max: process.env.NETLIFY || process.env.SERVERLESS ? 1 : 10,
+    });
   }
   return poolInstance;
 }
