@@ -284,6 +284,10 @@
   display: none !important;
 }
 
+.cesium-widget-errorPanel {
+  display: none !important;
+}
+
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button { @apply hidden; }
   [contenteditable][data-placeholder]:empty::before {

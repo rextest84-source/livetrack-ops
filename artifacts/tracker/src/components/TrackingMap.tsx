@@ -1,5 +1,6 @@
 import { Suspense, lazy, useRef } from "react";
 import type { GlobeMapHandle } from "@/components/globe/GlobeMap";
+import { GlobeErrorBoundary } from "@/components/globe/GlobeErrorBoundary";
 import type { RouteData } from "@/components/globe/globe-config";
 import { Globe2 } from "lucide-react";
 
@@ -30,16 +31,20 @@ export function TrackingMap({ currentLat, currentLng, route }: TrackingMapProps)
   const globeRef = useRef<GlobeMapHandle>(null);
 
   return (
-    <Suspense fallback={<GlobeFallback />}>
-      <GlobeMap
-        ref={globeRef}
-        className="h-full w-full bg-slate-950"
-        currentLat={currentLat}
-        currentLng={currentLng}
-        route={route}
-        layer="satellite"
-        fitRouteOnLoad
-      />
-    </Suspense>
+    <GlobeErrorBoundary>
+      <Suspense fallback={<GlobeFallback />}>
+        <GlobeMap
+          ref={globeRef}
+          className="h-full w-full bg-slate-950"
+          currentLat={currentLat}
+          currentLng={currentLng}
+          route={route}
+          layer="satellite"
+          fitRouteOnLoad
+          terrainEnabled
+          buildingsEnabled={false}
+        />
+      </Suspense>
+    </GlobeErrorBoundary>
   );
 }
